@@ -2,7 +2,7 @@
 
 Every instruction that reads or writes an XMEM row (``LD.MULT``,
 ``LD.MULT.CYCLIC``, ``LD.MASK``, ``LD.LUT``, ``ACTIVATE.QUANTIZE``,
-``ACTIVATE.EXACT``) addresses it as ``CR[base] + LR[offset]``
+``ACTIVATE.EXACT``) addresses it as ``table(CR[base]) + LR[offset]``
 (``docs/content/requirements/memory-access.md``). An :class:`XmemAccess`
 names both registers and their values, so a tool can tell which table an
 access belongs to (its base CR) and where in the table it lands (the
@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from ipu_isa.view import isa
 
 if TYPE_CHECKING:
+    from ipu_emu.ipu_state import IpuState
     from ipu_emu.issue import IssueFacts
 
 __all__ = ["ADDRESS_OPERANDS", "XmemAccess", "XmemAccessObserver", "address_operands"]
@@ -49,9 +50,13 @@ class XmemAccess:
         mnemonic: The instruction (``LD.MULT``, ``ACTIVATE.EXACT``, ...).
         kind: ``read`` or ``write``.
         cr: The base CR's number (``CR0`` .. ``CR15``).
-        base: Its value, as a signed 32-bit int.
+        base: Its value, as a signed 32-bit int: a flat row, or, when a
+            table set is bound, a table ID.
         lr: The offset LR's number.
         offset: Its value, as a signed 32-bit int.
+        storage_row: The first XMEM row of the table that ``base`` names, or
+            ``None`` when no table set is bound (``base`` is then a row) or the
+            ID is not bound (the access faults F-6).
     """
 
     cycle: int
@@ -62,11 +67,18 @@ class XmemAccess:
     base: int
     lr: int
     offset: int
+    storage_row: int | None = None
+
+    @property
+    def table_id(self) -> int | None:
+        """The table ID in ``base``, or ``None`` when no table set is bound."""
+        return None if self.storage_row is None else self.base
 
     @property
     def row(self) -> int:
-        """The row addressed: ``base + offset``."""
-        return self.base + self.offset
+        """The row addressed: the table's first row (or ``base``, flat) plus ``offset``."""
+        first = self.base if self.storage_row is None else self.storage_row
+        return first + self.offset
 
 
 def _signed32(value: int) -> int:
@@ -106,10 +118,12 @@ class XmemAccessObserver:
 
     Args:
         callback: Called with each :class:`XmemAccess`.
+        state: The state whose bound table set, if any, resolves ``base``.
     """
 
-    def __init__(self, callback: Callable[[XmemAccess], None]) -> None:
+    def __init__(self, callback: Callable[[XmemAccess], None], state: IpuState) -> None:
         self._callback = callback
+        self._state = state
         self._pc = 0
         self._cycle = -1
 
@@ -127,6 +141,9 @@ class XmemAccessObserver:
         if pair is None:
             return
         base, offset = pair
+        base_value = _signed32(facts.operands[base])
+        tables = self._state.table_map
+        entry = None if tables is None else tables.get(base_value)
         self._callback(
             XmemAccess(
                 cycle=self._cycle,
@@ -134,9 +151,10 @@ class XmemAccessObserver:
                 mnemonic=facts.plan.inst_name,
                 kind=_KIND_OF_STAT[stat],
                 cr=facts.encoded[base],
-                base=_signed32(facts.operands[base]),
+                base=base_value,
                 lr=facts.encoded[offset],
                 offset=_signed32(facts.operands[offset]),
+                storage_row=None if entry is None else entry[0],
             )
         )
 

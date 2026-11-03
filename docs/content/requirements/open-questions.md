@@ -18,7 +18,6 @@ Questions OQ-18 onwards concern the emulator and the ISA definition, not only th
 | OQ-3 | CR and LR width | The control spec diagram says 20 bits. Its text and the instruction reference say 32 bits. | 32 bits | Unassigned |
 | OQ-4 | IMEM bank depth | The control spec says 128 words per bank and a 7-bit PC. The branch label field is 10 bits. The emulator holds 1024 words. | 1024 words per bank and a 10-bit PC, as a parameter | Unassigned |
 | OQ-5 | `SET` source | The instruction reference takes a CR index only. The control spec takes a 5-bit source with a signed immediate mode. | CR index only | Unassigned |
-| OQ-8 | Row address to table mapping | CTRL produces `CR[base] + LR[offset]`. The cache unit expects `{table_id, offset[19:0]}`. No document defines the mapping. | The 24-bit sum is `{table_id[3:0], offset[19:0]}`. The base CR carries the table ID. | Unassigned |
 | OQ-9 | Load and use in one word | The instruction reference allows `LD.MULT` and a `MULT` that reads the same register in one word. The control spec tells software to avoid it. | Allowed. The `MULT` slot sees the data the `LOAD` slot of the same word fetched. This matches IPU-ARCH-1. | Unassigned |
 | OQ-10 | LR values in the `ACC` slot | The control spec forwards LR values from after the LR writes of the word. The accumulator spec marks `dest_slot`, `source` and `dest` as values from before the word, and `offset` as the value after. | One rule for all slots after CTRL: values from after the LR writes (IPU-ARCH-3) | Unassigned |
 

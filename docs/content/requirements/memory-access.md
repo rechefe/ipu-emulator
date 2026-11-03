@@ -4,17 +4,18 @@ The IPU reads and writes XMEM rows. The cache unit fills XMEM banks from DRAM an
 
 ## Address
 
-Every XMEM access names a base register (CR) and an offset register (LR): the loads of the `LOAD` slot, and `LD.LUT`, `ACTIVATE.QUANTIZE` and `ACTIVATE.EXACT` in the `AAQ` and `AAQ_EXACT` slots. CTRL computes the row address:
+Every XMEM access names a base register (CR) and an offset register (LR): the loads of the `LOAD` slot, and `LD.LUT`, `ACTIVATE.QUANTIZE` and `ACTIVATE.EXACT` in the `AAQ` and `AAQ_EXACT` slots. The base CR holds a table ID, never an offset: any CR can name a table, `CR0` (ID 0) and `CR1` (ID 1) included. CTRL concatenates the table ID and the offset to the row address:
 
 ```
-row_address = CR[base] + LR[offset]      // LR value after the LR writes of the same word
+row_address = {table_id, offset}   // table_id = CR[base][3:0]; offset = LR[offset], 20 bits,
+                                   // the LR value after the LR writes of the same word
 ```
 
-The row address identifies a table and an offset in that table.
+The row address is the table ID, then the offset in that table. It is a concatenation, not a sum, so the table ID takes the top 4 bits of the 24-bit address.
 
 | Field | Bits | Meaning |
 |---|---|---|
-| `table_id` | 4 | Table that holds the array. Position in the row address: [OQ-8](open-questions.md). |
+| `table_id` | 4 | Table that holds the array. `CR[base][3:0]`: the 24-bit row address starts with it. |
 | `page` | `offset[19:10]` | Page of the table. One page maps to one XMEM bank. |
 | `row` | `offset[9:0]` | Row in the XMEM bank |
 

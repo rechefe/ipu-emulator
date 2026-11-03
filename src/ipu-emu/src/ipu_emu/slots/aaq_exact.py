@@ -17,7 +17,7 @@ import numpy as np
 
 from ipu_emu.activations import apply_activation
 from ipu_emu.errors import EmulatorError
-from ipu_emu.geometry import fp32_mode, xmem_row_addr, xmem_row_check
+from ipu_emu.geometry import fp32_mode, table_row, table_row_check, xmem_row_addr
 from ipu_isa.activations import ACTIVATION_EXP2, ACTIVATION_IDENTITY, ACTIVATION_RECIPROCAL
 from ipu_isa.faults import FaultId
 from ipu_isa.geometry import LANES
@@ -41,7 +41,7 @@ def check_activate_exact(
 ) -> Fault | None:
     """The DS must be valid; F-6 for a row outside XMEM."""
     ipu.view.ds(ds)
-    return xmem_row_check(ipu.state, table_id + table_offset)
+    return table_row_check(ipu.state, table_id, table_offset)
 
 
 def _activate(state: IpuState, fn_id: int, raw: float) -> float:
@@ -102,4 +102,5 @@ def execute_activate_exact(
         ]
     row = bytearray(4 * LANES)
     codec.store_acc(row, np.asarray(values, dtype=np.float64))
-    state.xmem.write_address(xmem_row_addr(state, table_id + table_offset), bytes(row))
+    addr = xmem_row_addr(state, table_row(state, table_id, table_offset))
+    state.xmem.write_address(addr, bytes(row))

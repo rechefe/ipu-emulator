@@ -30,6 +30,8 @@ from ipu_isa.geometry import INST_MEM_WORDS, LANES
 from ipu_isa.nx8 import Nx8Format, encode_row
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from ipu_emu.cycle import CycleObserver
 
 #: Instruction-memory depth, as the emulator names it.
@@ -135,6 +137,9 @@ class IpuState:
         # Sticky arithmetic flags (E04-23): set by ACC and AGG, never by a
         # fault, cleared only when the state is built or reset (no run clears them).
         self.arith_flags: set[ArithmeticEvent] = set()
+        # The bound table set: table ID -> (first XMEM row, row count), or None
+        # for none bound, where a base CR holds a flat row (ReferenceModel.bind_tables).
+        self.table_map: Mapping[int, tuple[int, int]] | None = None
         self.arith_observers: tuple[Callable[[frozenset[ArithmeticEvent]], None], ...] = ()
         # Set when a debugger quit the last run before the program finished
         # (emulator-only; cleared at the start of every run).
@@ -210,6 +215,7 @@ class IpuState:
         self.quit_requested = False
         self.faults.reset()
         self.arith_flags.clear()
+        self.table_map = None
 
     # -- observers -----------------------------------------------------------
 

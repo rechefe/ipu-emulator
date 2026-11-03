@@ -30,7 +30,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +43,7 @@ from ipu_emu.emulator import DebugCallback
 from ipu_emu.emulator import load_program as _load_program
 from ipu_emu.emulator import run_with_debug as _run_with_debug
 from ipu_emu.errors import ConfigurationError, EmulatorFault
+from ipu_emu.geometry import xmem_row_fault
 from ipu_emu.ipu import Ipu as _Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_emu.ipu_state import IpuState as _IpuState
@@ -72,7 +73,11 @@ __all__ = [
 ]
 
 #: The version of this API (Q11).
-API_VERSION = "2.1.0"
+API_VERSION = "2.2.0"
+
+
+#: The table IDs a CR can hold: 0 .. 15.
+_TABLE_IDS = 16
 
 
 class RunState(str, enum.Enum):
@@ -388,8 +393,60 @@ class ReferenceModel:
         Returns:
             A function that stops the reports.
         """
-        detach: Callable[[], None] = self._state.add_cycle_observer(_XmemAccessObserver(callback))
+        detach: Callable[[], None] = self._state.add_cycle_observer(
+            _XmemAccessObserver(callback, self._state)
+        )
         return detach
+
+    def bind_tables(self, tables: Mapping[int, tuple[int, int]] | None) -> None:
+        """Bind the table set, only while halted (2.2.0).
+
+        With a table set bound, a CR named by ``LD.MULT``, ``LD.MULT.CYCLIC``
+        or ``LD.MASK`` as ``base``, or by ``LD.LUT``, ``ACTIVATE.QUANTIZE`` or
+        ``ACTIVATE.EXACT`` as ``table_id``, holds a table ID (0-15) and not a
+        row. The access is row ``first_row + LR[offset]`` of that table. An ID
+        that is not bound, or an offset outside the table's rows, faults F-6
+        (any CR may name a table, CR0, CR1 and CR15 included). With none bound
+        (the reset state) a CR holds a flat row and the access is row
+        ``CR + LR[offset]``. :meth:`reset` unbinds the set; :meth:`load_program`
+        keeps it.
+
+        Args:
+            tables: Table ID -> ``(first_row, row_count)``, or ``None`` to
+                unbind. IDs are 0-15; a table's rows lie inside XMEM in the
+                running element format, and tables may overlap. The mapping is
+                copied.
+
+        Raises:
+            ConfigurationError: The model is running or faulted, an ID is not
+                0-15, a table has no rows or reaches outside XMEM.
+        """
+        self._writable()
+        if tables is None:
+            self._state.table_map = None
+            return
+        checked: dict[int, tuple[int, int]] = {}
+        for table_id, (first_row, rows) in tables.items():
+            if not 0 <= table_id < _TABLE_IDS:
+                raise ConfigurationError(f"table ID {table_id} is not 0..{_TABLE_IDS - 1}")
+            last_row = first_row + rows - 1
+            detail = (
+                "has no rows"
+                if rows < 1
+                else xmem_row_fault(self._state, first_row) or xmem_row_fault(self._state, last_row)
+            )
+            if detail is not None:
+                raise ConfigurationError(
+                    f"table {table_id}, rows {first_row}..{last_row}, is not inside XMEM: {detail}"
+                )
+            checked[table_id] = (first_row, rows)
+        self._state.table_map = checked
+
+    def tables(self) -> Mapping[int, tuple[int, int]] | None:
+        """The bound table set as :meth:`bind_tables` took it (2.2.0), a copy,
+        or ``None`` when none is bound."""
+        tables = self._state.table_map
+        return None if tables is None else dict(tables)
 
     def step(self) -> CommitRecord:
         """Run one word. A BREAK slot never stops it (Q39): the word retires.

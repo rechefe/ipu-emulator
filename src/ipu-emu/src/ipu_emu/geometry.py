@@ -18,6 +18,8 @@ observer never reaches into ``Ipu`` for a helper (E04-11):
 - :func:`effective_mult_mask` is the 128-bit lane mask a MULT applies;
 - :func:`cr_scalar` is a CR as a MULT constant in the state's mode (the
   MULT handlers' scalar and the alias observer's identity check);
+- :func:`table_row` is the XMEM row a table CR and an offset name, through the
+  bound table set when there is one (flat ``CR + offset`` when none is bound);
 - :func:`xmem_row_addr` turns an assembly row number into a byte address;
 - :func:`lrd_bytes` reads the eight byte elements of an LRD pair;
 - :func:`lane_format` is the struct format of one 4-byte accumulator lane
@@ -76,6 +78,8 @@ __all__ = [
     "xmem_element_width_bytes",
     "xmem_row_addr",
     "xmem_row_check",
+    "table_row",
+    "table_row_check",
     "xmem_row_fault",
     "xmem_row_size_bytes",
 ]
@@ -323,6 +327,56 @@ def xmem_row_fault(state: IpuState, row: int) -> str | None:
             f"the {XMEM_SIZE_BYTES}-byte allocation"
         )
     return None
+
+
+def _table_fault(state: IpuState, table: int, offset: int) -> str | None:
+    """Why *table* and *offset* name no row of a bound table set, or ``None``."""
+    tables = state.table_map
+    if tables is None:
+        return None
+    entry = tables.get(table)
+    if entry is None:
+        return f"table ID {table} is not bound (bound IDs: {sorted(tables)})"
+    if not 0 <= offset < entry[1]:
+        return f"offset {offset} is outside table {table} (rows 0..{entry[1] - 1})"
+    return None
+
+
+def table_row(state: IpuState, table: int, offset: int) -> int:
+    """The XMEM row that a table CR's value and an offset name.
+
+    With no table set bound, the CR holds a flat row and the row is
+    ``table + offset``. With one bound (``ReferenceModel.bind_tables``), the CR
+    holds a table ID and the row is the table's first row plus *offset*.
+
+    The access is legal: the word's check phase faulted F-6 on any other
+    (:func:`table_row_check`). A handler called directly gets the row of an
+    illegal access, which :func:`xmem_row_addr` then refuses.
+
+    Raises:
+        EmulatorError: The table or the offset is not legal (a direct call).
+    """
+    tables = state.table_map
+    if tables is None:
+        return table + offset
+    detail = _table_fault(state, table, offset)
+    if detail is not None:
+        raise EmulatorError(f"{detail} (an unchecked word)")
+    return tables[table][0] + offset
+
+
+def table_row_check(state: IpuState, table: int, offset: int) -> tuple[FaultId, str] | None:
+    """F-6 and why, when *table* and *offset* name no legal XMEM row.
+
+    The table (bound set only: its ID is bound, the offset inside it), then the
+    row it resolves to (:func:`xmem_row_fault`).
+    """
+    if state.table_map is None:
+        return xmem_row_check(state, table + offset)
+    detail = _table_fault(state, table, offset)
+    if detail is not None:
+        return FaultId.F6, detail
+    return xmem_row_check(state, table_row(state, table, offset))
 
 
 def xmem_row_check(state: IpuState, row: int) -> tuple[FaultId, str] | None:

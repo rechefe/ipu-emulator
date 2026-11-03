@@ -26,7 +26,7 @@ import numpy as np
 from ipu_emu.activations import apply_aaq_activation
 from ipu_emu.cr_contents import float32_bytes
 from ipu_emu.errors import EmulatorError
-from ipu_emu.geometry import fp32_mode, xmem_row_addr, xmem_row_check
+from ipu_emu.geometry import fp32_mode, table_row, table_row_check, xmem_row_addr
 from ipu_isa.errors import IsaValueError
 from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.lut import SEGMENT_BYTES, TABLE_BITS, load_segment, segment_payload
@@ -56,13 +56,13 @@ def execute_aaq_nop(ipu: Ipu) -> None:
 
 def check_ld_lut(ipu: Ipu, *, lut_addr: int, table_id: int, table_offset: int) -> Fault | None:
     """F-6 for a row outside XMEM (``lut_addr`` 5-7 is F-1 at fetch)."""
-    return xmem_row_check(ipu.state, table_id + table_offset)
+    return table_row_check(ipu.state, table_id, table_offset)
 
 
 def execute_ld_lut(ipu: Ipu, *, lut_addr: int, table_id: int, table_offset: int) -> None:
     """Execute LD.LUT: one row's first 128 bytes into LUT segment ``lut_addr``."""
     state = ipu.state
-    addr = xmem_row_addr(state, table_id + table_offset)
+    addr = xmem_row_addr(state, table_row(state, table_id, table_offset))
     payload = segment_payload(bytes(state.xmem.read_address(addr, SEGMENT_BYTES)))
     lut = state.regfile.mutable("aaq_lut")
     image = int.from_bytes(lut, "little")
@@ -84,7 +84,7 @@ def check_activate_quantize(
     ipu.view.ds(ds)
     if not fp32_mode(ipu.state):
         ipu.view.qf(qf)
-    return xmem_row_check(ipu.state, table_id + table_offset)
+    return table_row_check(ipu.state, table_id, table_offset)
 
 
 def _activated(
@@ -118,7 +118,7 @@ def execute_activate_quantize(
     """
     state = ipu.state
     values, active = _activated(ipu, activation_fn, ipu.view.ds(ds))
-    addr = xmem_row_addr(state, table_id + table_offset)
+    addr = xmem_row_addr(state, table_row(state, table_id, table_offset))
     if fp32_mode(state):
         state.xmem.write_address(addr, float32_bytes(values))
         return

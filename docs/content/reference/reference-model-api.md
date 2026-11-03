@@ -60,7 +60,14 @@ a separate promise.
   Cycle Inspector's recorder shows the reads); 2.1.0 added
   `observe_xmem_accesses()` and its record `XmemAccess`, which name the base
   CR and the offset LR of each XMEM row a program reads or writes (what a
-  table tracer needs: which table an access belongs to and where in it).
+  table tracer needs: which table an access belongs to and where in it);
+  2.2.0 added `bind_tables()` and `tables()`, which bind and read the table
+  set that maps a table ID to its first XMEM row and its row count. With a
+  set bound, a base CR (`LD.MULT`, `LD.MULT.CYCLIC`, `LD.MASK`) or `table_id`
+  CR (`LD.LUT`, `ACTIVATE.QUANTIZE`, `ACTIVATE.EXACT`) holds a table ID 0-15,
+  and an ID that is not bound or an offset past the table's rows faults F-6.
+  With none bound, the reset state, a CR holds a flat row as before. 2.2.0
+  also added the field `XmemAccess.storage_row` (default `None`).
   Nothing earlier changed.
 
 `debug_run()` is the one escape hatch for tools such as the debugger: its

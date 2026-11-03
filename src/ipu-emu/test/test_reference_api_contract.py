@@ -528,6 +528,19 @@ SNAPSHOTS["2.1.0"] = {
     },
 }
 
+# 2.2.0: bind_tables() and tables() (a CR names a table by ID once a table set is
+# bound), and XmemAccess.storage_row (the first row of the table `base` names).
+# An addition: with no table set bound, nothing behaves differently.
+SNAPSHOTS["2.2.0"] = {
+    **SNAPSHOTS["2.1.0"],
+    "ReferenceModel": {
+        **SNAPSHOTS["2.1.0"]["ReferenceModel"],
+        "bind_tables": "(self, tables: 'Mapping[int, tuple[int, int]] | None') -> 'None'",
+        "tables": "(self) -> 'Mapping[int, tuple[int, int]] | None'",
+    },
+    "XmemAccess": {**SNAPSHOTS["2.1.0"]["XmemAccess"], "storage_row": "int | None"},
+}
+
 _RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, XmemMetaWrite, FaultInfo, XmemAccess)
 
 

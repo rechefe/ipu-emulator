@@ -14,9 +14,10 @@ from ipu_emu.geometry import (
     R_CYCLIC_VALID_INDICES,
     R_REG_SIZE,
     fp32_mode,
+    table_row,
+    table_row_check,
     vector_registers,
     xmem_row_addr,
-    xmem_row_check,
     xmem_row_size_bytes,
 )
 from ipu_isa.faults import FaultId
@@ -51,7 +52,7 @@ Fault = tuple[FaultId, str]
 
 def check_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> Fault | None:
     """F-6 for a row outside XMEM (``dest`` other than R0/R1 is F-1 at fetch)."""
-    return xmem_row_check(ipu.state, offset + base)
+    return table_row_check(ipu.state, base, offset)
 
 
 def _row_bytes(ipu: Ipu) -> int:
@@ -64,7 +65,7 @@ def execute_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> None:
     """Execute LD.MULT: Load one XMEM row into R0 or R1 (Ra in the active element
     width), and its metadata into ``r_meta``."""
     state = ipu.state
-    addr = xmem_row_addr(state, offset + base)
+    addr = xmem_row_addr(state, table_row(state, base, offset))
     data = state.xmem.read_address(addr, _row_bytes(ipu))
     reg_name = vector_registers(state).ra
     elem_idx = _MULT_STAGE_MAP[dest][1]
@@ -83,7 +84,7 @@ def check_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> Fau
             f"LD.MULT.CYCLIC: index must be one of {R_CYCLIC_VALID_INDICES} "
             f"(R_CYCLIC slot boundaries); got {index}",
         )
-    return xmem_row_check(ipu.state, offset + base)
+    return table_row_check(ipu.state, base, offset)
 
 
 def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> None:
@@ -96,7 +97,7 @@ def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> N
     cross a slot boundary.
     """
     state = ipu.state
-    addr = xmem_row_addr(state, offset + base)
+    addr = xmem_row_addr(state, table_row(state, base, offset))
     row_bytes = _row_bytes(ipu)
     byte_idx = index * ipu.codec.element_bytes
     data = state.xmem.read_address(addr, row_bytes)
@@ -111,7 +112,7 @@ def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> N
 
 def check_ld_mask(ipu: Ipu, *, offset: int, base: int) -> Fault | None:
     """F-6 for a row outside XMEM."""
-    return xmem_row_check(ipu.state, offset + base)
+    return table_row_check(ipu.state, base, offset)
 
 
 def execute_ld_mask(ipu: Ipu, *, offset: int, base: int) -> None:
@@ -122,6 +123,6 @@ def execute_ld_mask(ipu: Ipu, *, offset: int, base: int) -> None:
     element width, so only the row address is translated; the read size
     stays R_REG_SIZE regardless of mode.
     """
-    addr = xmem_row_addr(ipu.state, offset + base)
+    addr = xmem_row_addr(ipu.state, table_row(ipu.state, base, offset))
     data = ipu.state.xmem.read_address(addr, R_REG_SIZE)
     ipu.state.regfile.set_r_mask(data)
