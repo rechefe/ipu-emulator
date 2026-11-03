@@ -45,22 +45,16 @@
 
     Loop-bound formula (do-while, live MULT/XMEM, snapshot BLT.S):
       body runs for live index [lr5_start+1 .. bound+1]; bound = width-2.
-      chunk0 width=128 -> bound 126 (LR6);  chunk1 width=64 -> bound 62 (LR11).
+      chunk0 width=128 -> bound 126 (CR13.L);  chunk1 width=64 -> bound 62 (CR13.H).
 
     CRs: CR0=DATA_BASE, CR9=WEIGHTS_BASE (off read-only CR1), CR2=WEIGHTS_BASE+128,
           CR3=OUTPUT_BASE
           CR6=-128 (data startup), CR8=-1 (per-chunk fixed_idx startup)
-    LRs (preset by harness):
-      LR0=0    (const: r_cyclic write-index 0)
-      LR2=128  (data stride: 128 bytes/channel)
-      LR3=256  (output stride: 64 tokens * 4 bytes, packed)
-      LR6=126  (chunk0 bound: width=128)
-      LR7=0    (output pointer, incremented by LR3 each j)
-      LR8=0    (weight byte offset, incremented by LR12 each j)
-      LR9=0    (j counter)
-      LR10=576 (j-loop limit)
-      LR11=62  (chunk1 bound: width=64)
-      LR12=256 (W_STRIDE = 256 bytes per j)
+    LRs: the program sets LR0 (0), LR7 (out ptr), LR8 (weight offset) and LR9 (j) to 0 in the
+         word before j_loop (LR0 in j_loop's first word) and LR4, LR5 itself. The constants the
+         loops read are CRs (kernel.toml's [abi]): CR11 = data stride, CR12 = W_STRIDE, CR10 = j
+         limit, CR13.L = chunk0 bound (126, width 128), CR13.H = chunk1 bound (62, width 64).
+         LR3's output stride is the hardwired CR1 (1 row).
 
     Memory layout:
       DATA:    192 x 128 B       =  24 576 B (0x00000..0x05FFF)
@@ -85,33 +79,38 @@
       already supplied that step of phase.
 -#}
 
+    SET LR7 CR0;                             # output pointer, weight offset, j: all start at 0
+    SET LR8 CR0;
+    SET LR9 CR0;;
+
 j_loop:
     SET LR4 CR6;
+    SET LR0 CR0;                             # R_CYCLIC slot 0
     LD.MULT R0 LR8 CR9;;  # data startup -128; R0 = W[j, 0..127]
     SET LR5 CR8;;                            # chunk0 fixed_idx startup: -1
     SUB LR5 LR5 CR1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Prime k=0's row for chunk0 (see the snapshot note in the header).
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
-    BLT.S LR5 LR6 k_chunk0;;
+    BLT.S LR5 {{ cr.bounds }}.L k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
-    BLT.S LR5 LR6 k_chunk0;;
+    BLT.S LR5 {{ cr.bounds }}.L k_chunk0;;
 
 after_chunk0:
     # No re-prime: chunk1's first row is already in flight from chunk0's
@@ -123,16 +122,16 @@ k_chunk1:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
-    BLT.S LR5 LR11 k_chunk1;;
+    BLT.S LR5 {{ cr.bounds }}.H k_chunk1;;
 
     ACTIVATE.EXACT identity CR15.L CR3 LR7;;  # store 512B -> OUTPUT[j] (first 256B valid)
-    ADD LR7 LR7 LR3;;                        # advance output ptr (packed, 256B)
+    ADD LR7 LR7 CR1;;                        # advance output ptr (packed, 256B)
 
-    ADD LR8 LR8 LR12;
+    ADD LR8 LR8 {{ cr.w_stride }};
     ADD LR9 LR9 CR1;;  # next j: weight offset += W_STRIDE, j++
-    BLT.S LR9 LR10 j_loop;;
+    BLT.S LR9 {{ cr.n }} j_loop;;
 
 end:
     HALT;;

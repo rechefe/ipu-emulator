@@ -44,9 +44,11 @@
     Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT.S).
 
     CRs: CR0=DATA_BASE, CR9=WEIGHTS_BASE, CR2=WB+1 row, CR3=WB+2 rows, CR4=WB+3 rows, CR5=OUTPUT_BASE, CR6=-1 row (data startup), CR8=-1 (chunk startup)
-    LRs: LR0=0, LR2=1 row (data stride), LR3=1 row (output stride), LR6=126 (width-128 bound),
-         LR7=0 (out ptr), LR8=0 (weight offset), LR9=0 (j), LR10=240 (j limit),
-         LR11=94 (tail-chunk bound, width=96), LR12=4 rows (W_STRIDE)
+    LRs: the program sets LR0 (0), LR7 (out ptr), LR8 (weight offset) and LR9 (j) to 0 in the
+         word before j_loop (LR0 in j_loop's first word) and LR4, LR5 itself. The constants the
+         loops read are CRs (kernel.toml's [abi]): CR11 = data stride, CR12 = W_STRIDE, CR10 = j
+         limit, CR13.L = width-128 bound (126), CR13.H = tail-chunk bound.
+         LR3's output stride is the hardwired CR1 (1 row).
 
     Memory layout (row counts):
       DATA:    480 rows
@@ -54,8 +56,13 @@
       OUTPUT:  240 rows
 -#}
 
+    SET LR7 CR0;                             # output pointer, weight offset, j: all start at 0
+    SET LR8 CR0;
+    SET LR9 CR0;;
+
 j_loop:
     SET LR4 CR6;
+    SET LR0 CR0;                             # R_CYCLIC slot 0
     LD.MULT R0 LR8 CR9;;  # data startup -128; R0 = W[j, chunk0]
     SET LR5 CR8;;                            # chunk0 fixed_idx startup: -1
     SUB LR5 LR5 CR1;;                        # biased to -2 (load runs a bundle ahead)
@@ -67,24 +74,24 @@ j_loop:
     # must NOT re-prime: their first row is already in flight from the previous
     # chunk's trailing prefetch.
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;;
 
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
-    BLT.S LR5 LR6 k_chunk0;;
+    BLT.S LR5 {{ cr.bounds }}.L k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
-    BLT.S LR5 LR6 k_chunk0;;
+    BLT.S LR5 {{ cr.bounds }}.L k_chunk0;;
 
 after_chunk0:
 
@@ -95,9 +102,9 @@ k_chunk1:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
-    BLT.S LR5 LR6 k_chunk1;;
+    BLT.S LR5 {{ cr.bounds }}.L k_chunk1;;
 
     SET LR5 CR8;
     LD.MULT R0 LR8 CR3;;  # chunk2 startup; R0 = W[j, chunk2]
@@ -106,9 +113,9 @@ k_chunk2:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
-    BLT.S LR5 LR6 k_chunk2;;
+    BLT.S LR5 {{ cr.bounds }}.L k_chunk2;;
 
     SET LR5 CR8;
     LD.MULT R0 LR8 CR4;;  # chunk3 startup; R0 = W[j, chunk3]
@@ -117,19 +124,19 @@ k_chunk3:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
-    ADD LR4 LR4 LR2;
+    ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
-    BLT.S LR5 LR11 k_chunk3;;
+    BLT.S LR5 {{ cr.bounds }}.H k_chunk3;;
 
     # Store (ADR 0007): ACTIVATE.EXACT activates R_ACC's active lanes and
     # stores the row as 128 FP32 values in the same word; the DS half
     # (ds(128), every lane) makes `identity` a lane-for-lane copy of r_acc.
     ACTIVATE.EXACT identity CR15.L CR5 LR7;;  # store 512B -> OUTPUT[j] (first 64B valid)
-    ADD LR7 LR7 LR3;;                        # advance output ptr (packed)
+    ADD LR7 LR7 CR1;;                        # advance output ptr (packed)
 
-    ADD LR8 LR8 LR12;
+    ADD LR8 LR8 {{ cr.w_stride }};
     ADD LR9 LR9 CR1;;  # next j
-    BLT.S LR9 LR10 j_loop;;
+    BLT.S LR9 {{ cr.n }} j_loop;;
 
 end:
     HALT;;

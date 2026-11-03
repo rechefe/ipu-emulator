@@ -65,19 +65,20 @@
 # Register names (Jinja2 preprocessor; pure source-level substitution)
 # ---------------------------------------------------------------------------
 {% set rc_slot0       = "LR0"  %}  {# const 0: r_cyclic write-index / mask_shift #}
-{% set data_stride    = "LR2"  %}  {# 256 = bytes per input channel #}
-{% set out_stride     = "LR3"  %}  {# 512 = bytes per output row #}
+{% set data_stride   = cr.d_stride %}  {# 256 = bytes per input channel #}
+{% set out_stride    = "CR1" %}  {# 512 = bytes per output row #}
 {% set data_ptr       = "LR4"  %}  {# byte offset into D; runs across all 3 chunks #}
 {% set k_index        = "LR5"  %}  {# per-chunk scalar index 0..127 into R0 #}
-{% set k_bound        = "LR6"  %}  {# 126 = per-chunk bound (width 128 -> 0+128-2) #}
-{% set k_bound_tail   = "LR11" %}  {# 30 = tail-chunk bound (width 32 -> 0+32-2), K=288=128+128+32 #}
+{% set k_bound = cr.bounds ~ ".L" %}  {# 126 = per-chunk bound (width 128 -> 0+128-2) #}
+{% set k_bound_tail = cr.bounds ~ ".H" %}  {# 30 = tail-chunk bound (width 32 -> 0+32-2), K=288=128+128+32 #}
 {% set out_ptr        = "LR7"  %}  {# byte offset into C, += out_stride per j #}
 {% set w_ptr          = "LR8"  %}  {# byte offset into W, += w_stride per j #}
 {% set j_index        = "LR9"  %}  {# output-channel counter j #}
-{% set j_limit        = "LR10" %}  {# 144 = N_OUT #}
-{% set w_stride       = "LR12" %}  {# 384 = W_STRIDE bytes per output channel #}
+{% set j_limit       = cr.n %}  {# 144 = N_OUT #}
+{% set w_stride      = cr.w_stride %}  {# 384 = W_STRIDE bytes per output channel #}
 
 {% set DATA_BASE      = "CR0"  %}  {# base of D #}
+{% set ZERO          = "CR0" %}   {# hardwired read-only 0                      #}
 {% set ONE            = "CR1"  %}  {# hardwired read-only 1 #}
 {% set W_BASE_CHUNK1  = "CR2"  %}  {# WEIGHTS_BASE + 128 (W[j,128..255]) #}
 {% set W_BASE_CHUNK2  = "CR3"  %}  {# WEIGHTS_BASE + 256 (W[j,256..287]) #}
@@ -90,7 +91,12 @@
 {% set DSTRUCT        = "CR15.L" %}  {# the default DS half (ds(128)) #}
 {% set QF             = cr.qf ~ ".L" %}  {# the QF half (case_qf; FP32 ignores it) #}
 
+    SET {{ out_ptr }} {{ ZERO }};                      # output pointer, weight offset, j: all start at 0
+    SET {{ w_ptr }} {{ ZERO }};
+    SET {{ j_index }} {{ ZERO }};;
+
 j_loop:
+    SET {{ rc_slot0 }} {{ ZERO }};                     # R_CYCLIC slot 0
     SET {{ data_ptr }} {{ DATA_START_TG0 }};
     LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=0 startup; R0 = W[j, 0..127]
     SET {{ k_index }} {{ K_START }};;                                                           # chunk0 fixed_idx startup: -1
