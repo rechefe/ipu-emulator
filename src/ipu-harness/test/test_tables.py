@@ -308,3 +308,18 @@ def test_the_suggestion_for_a_staged_kernel_has_a_section_per_stage(tmp_path):
 def test_a_wrong_stage_declaration_does_not_load(tmp_path, tables, error):
     with pytest.raises(ManifestError, match=re.escape(error)):
         _staged(tmp_path, tables)
+
+
+def test_a_table_reached_through_a_derived_base_is_pending(tmp_path):
+    manifest = _kernel(tmp_path, "[tables]\nx = {}\ny = {}\n")
+    toml = manifest.directory / "kernel.toml"
+    text = toml.read_text().replace('qf = "case_qf"', 'qf = "case_qf"\nxb = "base(x)"')
+    toml.write_text(text.replace('x    = "CR2"', 'xb   = "CR2"'))
+    asm = manifest.directory / "scale.asm"
+    asm.write_text(asm.read_text().replace("cr.x", "cr.xb"))
+    result = _run(load_manifest(manifest.directory))
+    assert result.passed
+    assert _messages(result) == []
+    assert _messages(result, "pending") == [
+        "pending: x: CR2 holds xb, a value derived from its base"
+    ]

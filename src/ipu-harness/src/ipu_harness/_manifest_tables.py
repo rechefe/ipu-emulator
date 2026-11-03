@@ -90,6 +90,13 @@ def _entries(
     return tables
 
 
+def _reaches(abi: Mapping[str, str], placed: Mapping[str, frozenset[str]], name: str) -> bool:
+    """Whether a CR holds the tensor's base: its own binding, or a ``[derived]``
+    value of its base alone (``x_band = base(x) + ...``)."""
+    bound = abi.get(name, "").startswith("CR")
+    return bound or any(abi.get(d, "").startswith("CR") and b == {name} for d, b in placed.items())
+
+
 def _stage_name(r: Reader, stage: str) -> None:
     path = ("tables", stage)
     number = stage[len(STAGE_PREFIX) :]
@@ -141,7 +148,7 @@ def read_tables(
     out = {}
     for name, decl in tables.items():
         path = ("tables", name)
-        if not abi.get(name, "").startswith("CR"):
+        if not _reaches(abi, placed, name):
             raise r.fail(path, f"{where(path)}: {name} is reached through no CR in [abi]")
         via = _also_via(
             r,

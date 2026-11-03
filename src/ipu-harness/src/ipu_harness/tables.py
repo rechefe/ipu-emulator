@@ -88,6 +88,8 @@ class Table:
             ``also_via`` name.
         cr_offset: The ``[abi]`` offset its base CR holds past its first row.
         stage: The stage it is a table of (``stage1``), empty for a one-program kernel.
+        derived: The ``[derived]`` value its base CR holds when the tensor has
+            no ``[abi]`` binding of its own (``x_band = base(x) + ...``).
     """
 
     name: str
@@ -101,6 +103,7 @@ class Table:
     views: Mapping[int, str] = field(default_factory=dict)
     cr_offset: int = 0
     stage: str = ""
+    derived: str = ""
 
     @property
     def label(self) -> str:
@@ -324,15 +327,30 @@ def _cr_number(register: str) -> int | None:
     return int(register[2:]) if register.startswith("CR") and "." not in register else None
 
 
+def _own_cr(manifest: KernelManifest, abi: Mapping[str, str], name: str) -> tuple[int | None, str]:
+    """A tensor's base CR, and the ``[derived]`` value that fills it when the
+    tensor is not bound itself but one placed value of its base alone is."""
+    cr = _cr_number(abi.get(name, ""))
+    if cr is not None:
+        return cr, ""
+    for derived, bases in manifest.placed.items():
+        number = _cr_number(abi.get(derived, ""))
+        if bases == {name} and number is not None:
+            return number, derived
+    return None, ""
+
+
 def _views(
-    manifest: KernelManifest, abi: Mapping[str, str], name: str, decl: TableDecl | None
+    manifest: KernelManifest, abi: Mapping[str, str], name: str, decl: TableDecl | None, own: str
 ) -> dict[int, str]:
     """The other CRs a table is reached through, by number: its ``also_via``;
     measured (no declaration), every CR bound to a value of its base alone."""
     if decl is not None:
         names: list[str] = list(decl.also_via)
     else:
-        names = [d for d, bases in manifest.placed.items() if bases == {name} and d in abi]
+        names = [
+            d for d, bases in manifest.placed.items() if bases == {name} and d in abi and d != own
+        ]
     views = {}
     for view in names:
         number = 0 if view == "CR0" else _cr_number(abi[view])
@@ -353,11 +371,11 @@ def _tables(
     manifest = plan.manifest
     out = []
     for name, region in placement.regions.items():
-        cr = _cr_number(abi.get(name, ""))
+        cr, own = _own_cr(manifest, abi, name)
         if cr is None or (decls and name not in decls):
             continue
         decl = decls.get(name)
-        views = _views(manifest, abi, name, decl)
+        views = _views(manifest, abi, name, decl, own)
         out.append(
             Table(
                 name=name,
@@ -371,6 +389,7 @@ def _tables(
                 views=views,
                 cr_offset=offsets.get(name, 0),
                 stage=stage,
+                derived=own,
             )
         )
     return tuple(out)
@@ -412,7 +431,7 @@ def check(
     unbound = [
         Finding("error", f"{stage}.{n}" if stage else n, "reached through no CR in this stage")
         for n in decls
-        if n in placement.regions and not bindings.get(n, "").startswith("CR")
+        if n in placement.regions and _own_cr(manifest, bindings, n)[0] is None
     ]
     start = {**CR_READ_ONLY_INITIAL_VALUES, **launch}
     by_cr = {t.cr: t for t in tables}
@@ -511,6 +530,14 @@ def _pending(table: Table, accesses: Sequence[TableAccess]) -> list[Finding]:
     out = []
     if table.cr == 0:
         out.append(Finding("pending", name, "read through the hardwired CR0 (pinned at row 0)"))
+    if table.derived:
+        out.append(
+            Finding(
+                "pending",
+                name,
+                f"CR{table.cr} holds {table.derived}, a value derived from its base",
+            )
+        )
     if table.cr_offset:
         out.append(Finding("pending", name, f"CR{table.cr} holds its base {table.cr_offset:+d}"))
     used = {a.cr for a in accesses}
