@@ -57,7 +57,7 @@ qf           = "CR14"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = { jump_back = "max(0, height - 2)", pending = "repetitions not derived as a formula of the parameters" }
+x = { repetitions = "out_channels * tiles * tiles", jump_back = "max(0, height - 2)" }
 w = {}
 b = {}
 y = {}

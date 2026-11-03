@@ -98,7 +98,7 @@ ds_qf               = "CR15"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = { pending = "repetitions not derived as a formula of the parameters" }
+x = { repetitions = "out_channels * row_groups + 1" }
 w = { repetitions = "row_groups" }
 b = { repetitions = "row_groups" }
 y = {}
