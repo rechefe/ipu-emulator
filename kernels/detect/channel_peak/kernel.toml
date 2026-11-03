@@ -39,6 +39,14 @@ channels = "CR7"
 slot1    = "CR10"
 qf       = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+# x is read channel by channel for each tile: the walk to the next tile steps back
+# (channels - 1) * tiles - 1 rows, which stays within jump_back (one repetition).
+x = { jump_back = "min(1, tiles - 1) * max(0, (channels - 1) * tiles - 1)" }
+y = { jump_back = "tiles - 1", also_via = ["keep"] }
+tau = {}
+
 [golden]
 op = "channel_peak"
 tolerance = { fp32 = "EXACT" }
