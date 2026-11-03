@@ -46,7 +46,7 @@ BINDING_KEYS = ("register", "offset", "when")
 
 
 #: The keys of one table entry (``[tables]``'s ``<tensor> = {...}``).
-TABLE_KEYS = ("repetitions", "jump_back", "overhead_rows", "whole_run", "also_via")
+TABLE_KEYS = ("repetitions", "jump_back", "overhead_rows", "whole_run", "also_via", "pending")
 
 #: An ``also_via`` entry naming the hardwired zero: the program reaches the
 #: table through ``CR0`` with absolute rows in the offset LR.
@@ -72,6 +72,10 @@ class TableDecl:
             ``base(a) + 1``) or ``CR0`` that the program also reaches the
             table through. A table has one base CR; this names today's
             exceptions, reported as pending until the program is fixed.
+        pending: A short reason, when the program breaks a rule the other
+            keys cannot name (it reaches past its region, say): the table's
+            errors are reported as pending with it until a change of the
+            program fixes them. A pending table with nothing wrong is an error.
     """
 
     name: str
@@ -80,6 +84,7 @@ class TableDecl:
     overhead_rows: int | str = 0
     whole_run: bool = False
     also_via: tuple[str, ...] = ()
+    pending: str = ""
 
 
 @dataclass(frozen=True)

@@ -117,7 +117,11 @@ Schema
     ``repetitions`` and ``jump_back`` are not taken. ``also_via``: ``[abi]``
     names of placed values that read ``base(<tensor>)``, or ``"CR0"``, that
     the program also reaches the table through (today's exceptions to one
-    table, one CR; reported as pending). Once a kernel declares one table,
+    table, one CR; reported as pending). ``pending`` (a reason): the program
+    breaks a rule the other keys cannot say (it reaches past its region); the
+    table's errors are reported as pending until a change of the program
+    fixes them, and a pending table with nothing wrong is an error. Once a
+    kernel declares one table,
     every region the program reaches must be declared: each case's test
     checks the declarations against the run.
     A multi-stage kernel (``[kernel] stages``) writes one ``[tables.stage<N>]``

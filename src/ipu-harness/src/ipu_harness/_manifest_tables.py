@@ -86,6 +86,7 @@ def _entries(
             jump_back=_count(r, table.get("jump_back", 0), known, (*path, "jump_back")),
             overhead_rows=_count(r, table.get("overhead_rows", 0), known, (*path, "overhead_rows")),
             whole_run=r.typed(table.get("whole_run", False), bool, (*path, "whole_run")),
+            pending=r.typed(table.get("pending", ""), str, (*path, "pending")),
         )
     return tables
 

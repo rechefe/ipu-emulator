@@ -323,3 +323,17 @@ def test_a_table_reached_through_a_derived_base_is_pending(tmp_path):
     assert _messages(result, "pending") == [
         "pending: x: CR2 holds xb, a value derived from its base"
     ]
+
+
+def test_a_pending_table_turns_its_errors_into_pending_findings(tmp_path):
+    tables = '[tables]\nx = { pending = "prefetches a row past it" }\ny = {}\n'
+    result = _run(_kernel(tmp_path, tables, asm=PREFETCH_ASM))
+    assert result.passed
+    assert _messages(result) == []
+    (message,) = _messages(result, "pending")
+    assert message.startswith("pending: x: prefetches a row past it: 1 accesses outside rows=4")
+
+
+def test_a_pending_table_with_nothing_wrong_is_an_error(tmp_path):
+    result = _run(_kernel(tmp_path, '[tables]\nx = { pending = "old reason" }\ny = {}\n'))
+    assert _messages(result) == ["error: x: pending, but nothing is wrong any more: delete the key"]

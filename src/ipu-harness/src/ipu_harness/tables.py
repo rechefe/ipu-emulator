@@ -28,7 +28,9 @@ CRs it names in its ``run_stage`` call, its own repetitions and reach. A
 handoff buffer is a table of both stages with each one's numbers; placement
 reserves the larger overhead.
 
-Pending (reported, not failed): a table also reached through another CR
+Pending (reported, not failed): a table the manifest marks ``pending = "why"``
+(its errors are reported as pending, with the reason; a pending table with
+nothing wrong is an error), a table also reached through another CR
 (``also_via``), a base CR holding the base plus an ``[abi]`` offset, a table
 read through the hardwired ``CR0``. Each breaks "one table, one CR holding
 its table ID", which a later change of the programs fixes. Warnings: declared
@@ -104,6 +106,7 @@ class Table:
     cr_offset: int = 0
     stage: str = ""
     derived: str = ""
+    pending: str = ""
 
     @property
     def label(self) -> str:
@@ -284,6 +287,7 @@ def declared(plan: CasePlan, stage: str | None = None) -> Mapping[str, TableDecl
             overhead_rows=_value(plan, decl, "overhead_rows"),
             whole_run=decl.whole_run,
             also_via=decl.also_via,
+            pending=decl.pending,
         )
         for name, decl in decls.items()
         if name in plan.shapes
@@ -390,6 +394,7 @@ def _tables(
                 cr_offset=offsets.get(name, 0),
                 stage=stage,
                 derived=own,
+                pending="" if decl is None else decl.pending,
             )
         )
     return tuple(out)
@@ -476,7 +481,28 @@ def check(
         *(Finding("error", n, f"CR{sorted(c)} changed while in use") for n, c in changed.items()),
         *_layout_findings(tables, profiles),
     ]
-    return TableReport(tables, profiles, tuple(findings))
+    return TableReport(tables, profiles, tuple(_pending_tables(tables, findings)))
+
+
+def _pending_tables(tables: Sequence[Table], findings: Sequence[Finding]) -> list[Finding]:
+    """The errors of a table that says why it is ``pending`` become pending findings;
+    a ``pending`` table with no error left is itself an error (delete the key)."""
+    reasons = {t.label: t.pending for t in tables if t.pending}
+    out = []
+    broken = set()
+    for finding in findings:
+        reason = reasons.get(finding.table)
+        if reason and finding.severity == "error":
+            broken.add(finding.table)
+            out.append(Finding("pending", finding.table, f"{reason}: {finding.message[:100]}"))
+        else:
+            out.append(finding)
+    out.extend(
+        Finding("error", label, "pending, but nothing is wrong any more: delete the key")
+        for label in reasons
+        if label not in broken
+    )
+    return out
 
 
 def _signed(value: int) -> int:
