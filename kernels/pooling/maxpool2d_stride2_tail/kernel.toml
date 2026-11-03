@@ -53,6 +53,12 @@ plane      = "CR11"
 complete   = "CR12"
 qf         = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { repetitions = "in_tiles * in_tiles" }
+y = {}
+stage = { jump_back = "complete" }
+
 [golden]
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }
