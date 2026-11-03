@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The CRM (Cache replacment menagment) performs the following tasks:
+The CRM (Cache Replacement Management) performs the following tasks:
 
 - **Data prefetch:** Read weights/activations from memory to cache.
 - **Proactive write-back:** Write activations from cache to memory.
@@ -31,50 +31,86 @@ The CRM (Cache replacment menagment) performs the following tasks:
 
 ## 2. Block Diagram
 
-```mermaid
-%%{init: {"flowchart": {"curve": "stepBefore", "nodeSpacing": 120, "rankSpacing": 30, "padding": 4}}}%%
-flowchart TB
-    RISC["RISC Configuration"]
-    CACHE["Cache interface"]
-    IPU["IPU handshake"]
-    subgraph CRM ["<span style='display:inline-block;width:640px;text-align:left;font-weight:bold'>CRM</span>"]
-        DMA["<span style='display:inline-block;width:160px;padding:26px 0'>DMA state machine</span>"]
-        EMC["<span style='display:inline-block;width:160px;padding:16px 0'>External Memory<br>Controller</span>"]
-    end
-    EMI["External Memory Interface"]
-
-    RISC --> DMA
-    CACHE <--> DMA
-    IPU <--> DMA
-    DMA <--> EMC
-    EMC <--> EMI
-    linkStyle 1,3,4 interpolate linear
-
-    classDef io fill:none,stroke:none
-    classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
-    class RISC,CACHE,IPU,EMI io
-    class DMA,EMC blk
-    style CRM fill:none,stroke:#888,stroke-width:2px
-```
+![CRM block diagram](assets/crm-block-diagram.png)
 
 ## 3. Interfaces
 
 | Name | Direction | Description |
 |------|-----------|-------------|
 | RISC Configuration | Input | The RISC-V writes the tables (section 3.1) and starts the CRM. |
-| Cache interface | Bidirectional | Bank data and bank state (section 3.3). Prefetch writes banks, write-back reads them. |
-| IPU handshake | Bidirectional | In: the IPU address and table ID of each access. Out: stall and release. |
-| External Memory Interface | Bidirectional | Reads weights and activations for prefetch. Writes activations for write-back. |
+| Cache interface | Bidirectional | Read and write interface of data to the cache. |
+| IPU handshake | Bidirectional | In: the IPU address and table ID of each access. Out: publish bank state. |
+| External Memory Interface | Bidirectional | Read and write interface for prefetch data and for write-back. |
 
-> **TBD:** Give the width of each interface.
+### 3.0 DMA
 
-### 3.1 Table Layout
+- 8 tables for each configuration.
+    each table has two propertys 
+        external_memory_en
+        snopping_en
+>snooping releate to any indication form the ipu regarding relasing of banks 
+- Each table handles one data flow that relates to the active kernel.
+- There are several types of tables:
+    - **read-only:** Reads data from external memory and stores it in the
+      dedicated banks of the cache. Uses cache snooping for bank release.
+
+        | `external_memory_en` | `snooping_en` | Description |Full residency |
+        |------|------|-------------|------|
+        | `0` | `0` | Data already exist there is no need to bring form memory and snooping is not needed becasue we want to keep it to the next layer. | T |
+        | `0` | `1` | Data already exist and can be release there is no furher use  | T |
+        | `1` | `0` | prefetch from external memory, bank release by is not needed . | T |
+        | `1` | `1` | prefetch from external memory, bank release by snooping. | F |
+
+
+    - **write-only:** write data form cache to extrenal memory use snooping for bank release.
+   
+
+        | `external_memory_en` | `snooping_en` | Description |Full residency |
+        |------|------|-------------|------|
+        | `0` | `0` | The data stays in the cache for the next layer. No write to external memory. | T |
+        | `0` | `1` | Not supported  |  |
+        | `1` | `0` | The data stays in the cache. A write-through also writes it to external memory(i.e. debug). | T |
+        | `1` | `1` | write-back to external memory, bank release by snooping. | F |
+
+
+
+    - **read_after_write:** a table that first act like as write-only table and them switch mid kernel to read-only
+
+        Only these combinations are supported:
+
+        | Write `external_memory_en` | Write `snooping_en` | Read `external_memory_en` | Read `snooping_en` | Description |Full residency |
+        |------|------|------|------|-------------|------|
+        | `0` | `0` | `0` | `0` | The data stays in the cache. No write to external memory. After the read, the data stays in the cache for the next layer. | T |
+        | `0` | `0` | `0` | `1` | The data stays in the cache. No write to external memory. The read releases the banks by snooping. | T |
+        | `1` | `0` | `0` | `0` | The data stays in the cache. A write-through also writes it to external memory(debug). After the read, the data stays in the cache for the next layer. | T |
+        | `1` | `0` | `0` | `1` | The data stays in the cache. A write-through also writes it to external memory. The read releases the banks by snooping. | T |
+        | `1` | `1` | `1` | `1` | Write-back to external memory, bank release by snooping. The read prefetches the data from external memory, bank release by snooping. | F |
+
+    - **scratchpad:** The IPU uses this table for temporary data. The IPU
+      writes and reads it with random access. The CRM does no prefetch,
+      write-back or snooping on this table. The table must be fully in the
+      cache.
+
+        > **Note:** The CRM does not need to know about this table. We
+        > configure it in the CRM for good measure.
+
+
+### 3.1 Table properties
 
 > **TBD:** State the number of tables and how the host writes them.
 
-| Bits | Field | Description |
-|------|-------|-------------|
-| TBD | TBD | TBD. |
+| Field | Bits | Description |
+|-------|------|-------------|
+| `type` |  | `read-only`, `write-only`, `read-after-write`, `scratchpad`. |
+| `dram_base_address` | 32 | Resolution of 1KB. |
+| `table_size` | 32 | Resolution of element. |
+| `xmem_bank_list[16]` | | Ordered array of banks. |
+| `xmem_num_of_banks` | 4 | Number of banks. |
+| `external_memory_en` |  | Enables read and write to external memory: prefetch for a read and write-back. |
+| `snooping_en` |  | Enables bank release from IPU indications. |
+| `num_loops` |  | Number of times to read the table.|
+| `jump_back` |  | The number of addresses that the IPU can go back after it reads an address. Example: `read_addr = 100` and `jump_back = 10`. The IPU cannot access addresses `0`-`90`. |
+
 
 ### 3.2 Table Types
 
