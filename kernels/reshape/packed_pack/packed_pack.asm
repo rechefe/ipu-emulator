@@ -106,11 +106,11 @@
     SET {{ slot0_lr }} {{ ZERO }};;
     LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
 
-    SET {{ read_ptr }} {{ UNPACKED_BASE }};;
+    SET {{ read_ptr }} {{ ZERO }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
     SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ACTIVATE.EXACT's offset is a FORWARDED read and dispatches after this word's own ADD -- see packed_layernorm.asm's step 3 note
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ UNPACKED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime unpacked row 0 into slot 0
 
     # ---- row 0 (peeled) ----
@@ -120,7 +120,7 @@
     {%- set is_first = (p_out == 0) %}
     MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if is_first else "" }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ UNPACKED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 {%- endfor %}
     ACTIVATE.EXACT identity {{ DSTRUCT128 }}.L {{ PACKED_BASE }} {{ write_ptr }};
@@ -151,7 +151,7 @@ pack_loop:
         a one-off indexing mistake). #}
     MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if p_out == 0 else "" }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ UNPACKED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
     {#- p_out=7's load+row_idx/BLT.S all fuse into ONE word: write_ptr,
@@ -168,7 +168,7 @@ pack_loop:
         exits right after. #}
     MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ UNPACKED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- endif %}
 {%- endfor %}

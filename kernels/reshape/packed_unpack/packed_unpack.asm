@@ -74,11 +74,11 @@
     SET {{ slot0_lr }} {{ ZERO }};;
     LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
 
-    SET {{ read_ptr }} {{ PACKED_BASE }};;
+    SET {{ read_ptr }} {{ ZERO }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
     SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ACTIVATE.EXACT's offset is a FORWARDED read and dispatches after this word's own ADD -- see packed_layernorm.asm's step 3 note
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ PACKED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime row 0 into slot 0
 
     # ---- row 0 (peeled) ----
@@ -93,7 +93,7 @@
     {%- else %}
     ACTIVATE.EXACT identity {{ DSTRUCT_TOK }}.L {{ UNPACKED_BASE }} {{ write_ptr }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ PACKED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- endif %}
 {%- endfor %}
@@ -123,7 +123,7 @@ unpack_loop:
         BLT.S must share the closing load's word). #}
     ACTIVATE.EXACT identity {{ DSTRUCT_TOK }}.L {{ UNPACKED_BASE }} {{ write_ptr }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ PACKED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
     BLT.S {{ row_idx }} {{ row_limit }} unpack_loop;;
