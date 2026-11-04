@@ -69,7 +69,8 @@ stores the product, once per row:
       {{ cr.qf }}.L (FP32 ignores it).
     - The product goes through ACC (first add), and ACTIVATE.EXACT identity
       stores the accumulator vector: one FP32 row per iteration.
-    - Region bases and the row count are in rows, not bytes.
+    - {{ cr.x }} and {{ cr.y }} hold the table IDs of x and y, not their rows;
+      LR1 and LR2 are the rows within them. The row count is in rows, not bytes.
 -#}
     SET LR0 CR0 ;
     SET LR1 CR0 ;
@@ -91,9 +92,9 @@ issue together in that word. Line by line:
 | Word | What it does |
 |---|---|
 | `SET LR0 CR0 ; SET LR1 CR0 ; SET LR2 CR0` | Zero three loop registers: `LR0` (an offset that stays 0), `LR1` (the row of `x`) and `LR2` (the row of `y`). `CR0` always reads 0. |
-| `LD.MULT R0 LR1 {{ cr.x }}` | Load XMEM row `x + LR1` into `R0`. A row is 128 elements in both modes. |
+| `LD.MULT R0 LR1 {{ cr.x }}` | Load row `LR1` of table `x` into `R0`; `{{ cr.x }}` holds `x`'s table ID. A row is 128 elements in both modes. |
 | `MULT.VE LR0 {{ cr.s }} 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST` | Multiply `R0`, from element `LR0` (0), by the MULT constant in `{{ cr.s }}`, with mask slot 0 and no mask shift (every lane: `R_MASK` is all ones at every kernel start), the DS half `CR15.L` and the QF half `{{ cr.qf }}.L` (which FP32 ignores). `ACC.ADD.FIRST` in the same word writes that product to the accumulator. |
-| `ACTIVATE.EXACT identity CR15.L {{ cr.y }} LR2` | Store the accumulator, unchanged, as one FP32 row at `y + LR2`. |
+| `ACTIVATE.EXACT identity CR15.L {{ cr.y }} LR2` | Store the accumulator, unchanged, as one FP32 row at row `LR2` of table `y`. |
 | `ADD LR1 LR1 CR1 ; INC LR2 1` | Step to the next row of `x` (`CR1` always reads 1) and of `y`. |
 | `BLT.S LR1 {{ cr.rows }} row_loop` | Loop while `LR1` is less than `rows`. |
 | `HALT` | End the run. |
@@ -111,7 +112,12 @@ Three things make it a kernel program rather than a fixed one:
 - **`{{ cr.x }}`** is the register `kernel.toml` binds to `x`. The program
   never names a CR for a value; it asks for the value by name, and renders as
   `CR2` here. A name the `[abi]` table does not bind is an error at the line
-  that uses it.
+  that uses it. For a tensor the register holds a *table ID* (0 to 15), never
+  a row: the harness picks the ID when it launches the kernel and tells the
+  model which rows the table is, so the program gets the row from an LR
+  (`LR1` above) and may not read the register as a number or add an offset to
+  it. A tensor bound to `CR0` is table 0, which reads the hardwired 0 and
+  needs no write.
 - **Template values**: every parameter (`{{ rows }}`), the variant of the run
   (`format`, such as `"e4"` or `"fp32"`) and each tensor's shape
   (`shapes.x`). Every load and store moves one row in both modes, so `scale`
@@ -169,10 +175,13 @@ Section by section:
 - **`[derived]`**: values computed from the case; `case_qf` is the QF half of
   the case's variant (0 in FP32), and `ds(...)`, `qf(...)` and
   `constant(...)` build the other CR halves and constants.
-- **`[abi]`**: which register holds each value: a region's base row, an
+- **`[abi]`**: which register holds each value: a region's table ID, an
   integer, or an element scalar. Every region must be bound, since the program
-  can reach it only through a register: by itself, or through a bound
-  `[derived]` value that reads its `base()`.
+  can reach it only through its register, and each region has exactly one:
+  a CR names a table, so an offset into a region is an LR's, never a second
+  CR (`offset` and a `[derived]` value over `base()` are load errors). A
+  program that reads past its region's rows (and its declared
+  `overhead_rows`) faults F-6.
 - **`[golden]`**: the reference function and the tolerance tier per variant
   (step 7).
 - **`[cases.*]`**: named sets of parameter values. `[cases.default]` is
