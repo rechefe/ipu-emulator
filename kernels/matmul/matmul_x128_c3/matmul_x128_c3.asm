@@ -39,7 +39,7 @@
     LR4 (data ptr) advances continuously by 128 across chunks; LR5 reset to -1 per chunk.
     Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT.S).
 
-    CRs: CR0=DATA_BASE, CR9=WEIGHTS_BASE (every chunk: LR1 = the chunk's row), CR5=OUTPUT_BASE, CR6=-128 (data startup), CR8=-1 (chunk startup)
+    CRs: CR2=DATA_BASE, CR9=WEIGHTS_BASE (every chunk: LR1 = the chunk's row), CR5=OUTPUT_BASE, CR6=-128 (data startup), CR8=-1 (chunk startup)
     LRs: the program sets LR0 (0), LR7 (out ptr), LR8 (weight offset) and LR9 (j) to 0 in the
          word before j_loop (LR0 in j_loop's first word) and LR4, LR5 itself, and LR1 (W[j]'s
          chunk row: LR8 + chunk, the offset of the chunk in table a) before each chunk load. The constants the
@@ -82,14 +82,14 @@ j_loop:
     SUB LR5 LR5 CR1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Prime k=0's row for chunk0 (see the snapshot note in the header).
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
     BLT.S LR5 {{ cr.full_bound }} k_chunk0;;
@@ -98,7 +98,7 @@ j_loop:
 k_chunk0:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
     BLT.S LR5 {{ cr.full_bound }} k_chunk0;;
@@ -113,7 +113,7 @@ after_chunk0:
 k_chunk1:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
     BLT.S LR5 {{ cr.full_bound }} k_chunk1;;
@@ -126,7 +126,7 @@ k_chunk1:
 k_chunk2:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
     BLT.S LR5 {{ cr.full_bound }} k_chunk2;;

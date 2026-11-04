@@ -47,7 +47,7 @@
       body runs for live index [lr5_start+1 .. bound+1]; bound = width-2.
       chunk0 width=128 -> bound 126 (CR13.L);  chunk1 width=64 -> bound 62 (CR13.H).
 
-    CRs: CR0=DATA_BASE, CR9=WEIGHTS_BASE (off read-only CR1; every chunk: LR1 = the chunk's row),
+    CRs: CR2=DATA_BASE, CR9=WEIGHTS_BASE (off read-only CR1; every chunk: LR1 = the chunk's row),
           CR3=OUTPUT_BASE
           CR6=-128 (data startup), CR8=-1 (per-chunk fixed_idx startup)
     LRs: the program sets LR0 (0), LR7 (out ptr), LR8 (weight offset) and LR9 (j) to 0 in the
@@ -92,14 +92,14 @@ j_loop:
     SUB LR5 LR5 CR1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Prime k=0's row for chunk0 (see the snapshot note in the header).
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
     BLT.S LR5 {{ cr.bounds }}.L k_chunk0;;
@@ -108,7 +108,7 @@ j_loop:
 k_chunk0:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
     BLT.S LR5 {{ cr.bounds }}.L k_chunk0;;
@@ -123,7 +123,7 @@ after_chunk0:
 k_chunk1:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC LR4 CR0 LR0;
+    LD.MULT.CYCLIC LR4 {{ cr.b }} LR0;
     ADD LR4 LR4 {{ cr.d_stride }};
     ADD LR5 LR5 CR1;
     BLT.S LR5 {{ cr.bounds }}.H k_chunk1;;

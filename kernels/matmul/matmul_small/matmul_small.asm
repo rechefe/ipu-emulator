@@ -17,7 +17,7 @@
     snapshot (issue #157), so each k's row is loaded a word before its multiply.
 
     ABI (kernel.toml [abi]; every value counts ROWS or indices, not bytes):
-      CR0  = a base (row 0: the hardwired 0)
+      CR12 = a base (a table ID)
       CR11 = b base                    CR2  = y base
       CR3  = 1   (fixed_idx step)      CR4  = 1   (a and b row step)
       CR5  = 1   (y row step)          CR6  = M   (outer-loop limit on the a row)
@@ -40,7 +40,7 @@
     SET                 LR7 CR7;;
 
 row_loop:
-    LD.MULT        R0 LR0 CR0;;
+    LD.MULT        R0 LR0 {{ cr.a }};;
 
     SET                 LR4 CR8;;
     SET                 LR5 CR9;;
