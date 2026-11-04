@@ -76,15 +76,15 @@ allones       = "CR15"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = { repetitions = 2, also_via = ["CR0"] }
-gamma = { also_via = ["CR0"] }
-beta = { also_via = ["CR0"] }
+x = { repetitions = 2, overhead_rows = 1 }
+gamma = {}
+beta = {}
 y = {}
 neg_mean_tile = {}
 invstd_tile = {}
 scratch_tok = {}
-centered = { repetitions = 3, also_via = ["CR0"] }
-mask = { also_via = ["CR0"] }
+centered = { repetitions = 3, overhead_rows = 1 }
+mask = {}
 allones = {}
 
 [golden]
