@@ -78,7 +78,9 @@ Schema
     through the hardwired 0 and nothing is written. A binding may be a table
     with ``register`` and optional keys: a tensor's may add ``offset``,
     ``{ register = "CR2", offset = -1 }`` for its base row plus an int (in a
-    ``unit = "bytes"`` kernel the base and the offset count bytes).
+    ``unit = "bytes"`` kernel the base and the offset count bytes). A CR names
+    one table, so a kernel run refuses a binding with an offset
+    (:mod:`ipu_harness.table_bases`): the program keeps the offset in an LR.
     Any binding may be a table with ``when`` (as a tensor's): it binds
     only in a case where that holds; a conditional tensor's binding takes the
     tensor's condition. Two bindings may share a register only when their
@@ -100,9 +102,10 @@ Schema
     ``unit = "bytes"`` kernel, as a tensor's binding): such a value, and any
     that reads it, is *placed* (:attr:`KernelManifest.placed`), known only
     when the registers are written, so only ``[abi]`` binds it; a shape, a
-    pin or the cost cannot read it. ``w1 = "base(weights) + 1"`` gives one
-    region several offset registers, which a ``{ register, offset }``
-    binding cannot. A value that reads ``row_bytes`` (the bytes of one XMEM
+    pin or the cost cannot read it. A CR names one table, so a kernel run
+    refuses to bind such a value to a CR (``w1 = "base(weights) + 1"`` would
+    be a second CR into the region): bind the tensor and keep the offset in
+    an LR. A value that reads ``row_bytes`` (the bytes of one XMEM
     row in the case's variant: 128 in NX8, 512 in FP32) or ``case_qf`` (the
     case variant's QF half-CR, 0 in FP32) is placed too. The helpers
     ``ds()``, ``qf()``, ``constant()`` and ``halves()``
@@ -122,8 +125,9 @@ Schema
     reserves. ``whole_run`` (bool): needed from start to end, so
     ``repetitions`` and ``jump_back`` are not taken. ``also_via``: ``[abi]``
     names of placed values that read ``base(<tensor>)``, or ``"CR0"``, that
-    the program also reaches the table through (today's exceptions to one
-    table, one CR; reported as pending). ``pending`` (a reason): the program
+    the program also reaches the table through (reported as pending; a run
+    refuses a base-reading value bound to a CR, so no kernel has one).
+    ``pending`` (a reason): the program
     breaks a rule the other keys cannot say (it reaches past its region); the
     table's errors are reported as pending until a change of the program
     fixes them (a case where nothing is wrong with it warns). Once a

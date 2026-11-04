@@ -41,6 +41,7 @@ from ipu_harness.kernel_start import start_kernel, start_rng
 from ipu_harness.manifest import KernelManifest, check_abi
 from ipu_harness.params import CasePlan
 from ipu_harness.placement import Placement
+from ipu_harness.table_bases import check_table_bases
 from ipu_harness.tables import TableRecorder, TableReport, check, combine
 from ipu_isa.geometry import LANES
 
@@ -258,6 +259,7 @@ def _assemble_stage(
     bindings = manifest.abi if abi is None else check_abi(manifest, abi, where=f"stage {program}")
     assembled = assemble_program(plan, path, cache, params=params, abi=bindings)
     check_cr_reads(manifest, assembled.rendered, abi=bindings, name=path.name)
+    check_table_bases(manifest, assembled.rendered, abi=bindings, name=path.name)
     return bindings, assembled
 
 

@@ -47,6 +47,7 @@ from ipu_harness.params import CasePlan, plan_case
 from ipu_harness.placement import Placement, place
 from ipu_harness.reference import evaluate, load_reference
 from ipu_harness.stages import StageOptions, StagesRun, run_stages
+from ipu_harness.table_bases import check_table_bases
 from ipu_harness.tables import TableRecorder, TableReport, check, overhead_rows
 from ipu_harness.variants import Variant, as_variant
 from ipu_isa.codec.word import word_bytes
@@ -569,6 +570,7 @@ def stage(
     plan, values, placement = _prepare(manifest, case, fmt, inputs, shared)
     program = assemble(plan, cache)
     check_cr_reads(plan.manifest, program.rendered)  # the case's bindings (``when``)
+    check_table_bases(plan.manifest, program.rendered)
 
     model = ReferenceModel(fmt.mode) if shared is None else shared.model
     model.load_program(program.words)
