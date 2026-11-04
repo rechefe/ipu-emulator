@@ -38,8 +38,8 @@
     - x and y are padded to cols x rows and chunk-interleaved: cols is the
       next power of two >= width (a divisor of 128, so a spatial row never
       straddles a chunk), and row_groups = ceil(height * cols / 128) chunks
-      per channel; chunk g of channel c is row g * channels + c. x is pinned
-      at row 0, so CR0 is its base (no headroom: a 1x1 conv has no
+      per channel; chunk g of channel c is row g * channels + c. x is a table of
+      its own, read through its CR (no headroom: a 1x1 conv has no
       neighbourhood to prefetch).
     - w [out, in, 1, 1]: out_channels * num_passes rows, row o * P + p
       holding input channels p * 128 .. p * 128 + 127 of output channel o
@@ -57,7 +57,8 @@
       word-start snapshot).
     - fixed_idx_step (128) and the LR6/LR8/LR9 slot offsets are R_CYCLIC or
       lane ELEMENT offsets: the ring is 512 elements in every format.
-    - num_passes and tail_size (unseeded CR10) are written but never read.
+    - num_passes is not written (nothing reads it); tail_size (unseeded CR10) is
+      written but never read.
 
     LR allocation
       LR0 input row-group base row, LR1 output row (from -1), LR2 row-group
@@ -110,16 +111,16 @@
 row_loop:
 
     # Pre-load first 4 input channels into R_CYCLIC S0..S3
-    LD.MULT.CYCLIC LR0 CR0 LR7;;
+    LD.MULT.CYCLIC LR0 {{ cr.x }} LR7;;
 
     ADD                 LR14 LR0 CR1;  # LR14 = LR0 + 1 row (channel 1's row)
-    LD.MULT.CYCLIC LR14 CR0 LR6;;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR6;;
 
     ADD                 LR14 LR14 CR1;;  # LR14 = LR0 + 2 rows (channel 2's row)
-    LD.MULT.CYCLIC LR14 CR0 LR8;;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR8;;
 
     ADD                 LR14 LR14 CR1;;  # LR14 = LR0 + 3 rows (channel 3's row)
-    LD.MULT.CYCLIC LR14 CR0 LR9;;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR9;;
 
     SET                 LR3 CR0;
     SET                 LR12 CR0;;  # LR3 = OC counter, LR12 = kernel offset
@@ -197,25 +198,25 @@ PIPELINE_BODY_A:
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
-    LD.MULT.CYCLIC LR14 CR0 LR7;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR7;
     MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
-    LD.MULT.CYCLIC LR14 CR0 LR6;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR6;
     MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
-    LD.MULT.CYCLIC LR14 CR0 LR8;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR8;
     MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
-    LD.MULT.CYCLIC LR14 CR0 LR9;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR9;
     MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;
     BLT.S                 LR4 LR15 PIPELINE_BODY_A;;
@@ -235,20 +236,20 @@ POST_BODY_A:
 LAST_EPILOGUE_A:
 
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR0 CR0 LR7;
+    LD.MULT.CYCLIC LR0 {{ cr.x }} LR7;
     MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR0 CR1;  # LR14 = LR0 + 1 row
-    LD.MULT.CYCLIC LR14 CR0 LR6;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR6;
     MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR0 + 2 rows; needs its own word (ADD src_a reads snapshot).
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR14 CR0 LR8;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR8;
     MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
@@ -281,7 +282,7 @@ LAST_EPILOGUE_A:
 {%- else %}
     ADD                 LR1 LR1 LR5;
 {%- endif %}
-    LD.MULT.CYCLIC LR14 CR0 LR9;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR9;
     ACTIVATE.EXACT {{ activation }} CR15.L {{ cr.y }} LR1;;
     INC                 LR3 1;
     ADD                 LR12 LR12 CR1;;
@@ -346,25 +347,25 @@ PIPELINE_BODY_B:
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
-    LD.MULT.CYCLIC LR14 CR0 LR7;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR7;
     MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
-    LD.MULT.CYCLIC LR14 CR0 LR6;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR6;
     MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
-    LD.MULT.CYCLIC LR14 CR0 LR8;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR8;
     MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
-    LD.MULT.CYCLIC LR14 CR0 LR9;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR9;
     MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;
     BLT.S                 LR4 LR15 PIPELINE_BODY_B;;
@@ -375,20 +376,20 @@ POST_BODY_B:
 LAST_EPILOGUE_B:
 
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR0 CR0 LR7;
+    LD.MULT.CYCLIC LR0 {{ cr.x }} LR7;
     MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR0 CR1;  # LR14 = LR0 + 1 row
-    LD.MULT.CYCLIC LR14 CR0 LR6;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR6;
     MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR0 + 2 rows; own word (ADD src_a reads snapshot).
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR14 CR0 LR8;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR8;
     MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
@@ -415,7 +416,7 @@ LAST_EPILOGUE_B:
 {%- else %}
     ADD                 LR1 LR1 LR5;
 {%- endif %}
-    LD.MULT.CYCLIC LR14 CR0 LR9;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR9;
     ACTIVATE.EXACT {{ activation }} CR15.L {{ cr.y }} LR1;;
 
     INC                 LR3 1;
@@ -486,27 +487,27 @@ MID_EPILOGUE_A:
 
     # E1-E4 with reloads from LR13 (next pass's ich0..ich3)
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR13 CR0 LR7;
+    LD.MULT.CYCLIC LR13 {{ cr.x }} LR7;
     MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR13 CR1;  # LR14 = LR13 + 1 row
-    LD.MULT.CYCLIC LR14 CR0 LR6;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR6;
     MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR13 + 2 rows; own word (ADD src_a reads snapshot).
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR14 CR0 LR8;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR8;
     MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR13 + 3 rows; own word, same reason.
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR14 CR0 LR9;;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR9;;
 
     # Transition: advance kernel pointer + decrement pass counter + load R0
     ADD                 LR12 LR12 CR1;
@@ -546,27 +547,27 @@ MID_EPILOGUE_B:
     ADD                 LR13 LR13 {{ cr.pass_stride }};;
 
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR13 CR0 LR7;
+    LD.MULT.CYCLIC LR13 {{ cr.x }} LR7;
     MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR13 CR1;  # LR14 = LR13 + 1 row
-    LD.MULT.CYCLIC LR14 CR0 LR6;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR6;
     MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR13 + 2 rows; own word (ADD src_a reads snapshot).
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR14 CR0 LR8;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR8;
     MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR13 + 3 rows; own word, same reason.
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
-    LD.MULT.CYCLIC LR14 CR0 LR9;;
+    LD.MULT.CYCLIC LR14 {{ cr.x }} LR9;;
 
     ADD                 LR12 LR12 CR1;
     SUB                 LR10 LR10 CR1;;
