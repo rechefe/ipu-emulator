@@ -17,8 +17,8 @@
     - Every MULT reads its vectors with the case's QF half in CR14.L, each
       element scaled by the metadata of the row it was loaded from.
     - acc is three ACTIVATE.QUANTIZE identity stores of R_ACC, one NX8 row
-      each (rows 0-2 from CR7); relu follows at row 3: ACTIVATE.QUANTIZE relu
-      of the third vector. Each store quantizes its row with its own scale.
+      each (rows 0-2 from CR7); relu is its own table, CR10, one row:
+      ACTIVATE.QUANTIZE relu of the third vector. Each store quantizes its row with its own scale.
     - CR9 is the MULT constant 2.0 (the NX8 constant layout); CR8 is lane 4,
       the R0 element MULT.RC.VE and MULT.EE use as a scalar; CR11 is ROWS - 1
       because BLT.S reads the counter from the start of the cycle.
@@ -53,6 +53,5 @@ matvec:                                                           # R_ACC[r] = A
     MULT.RC.VV          LR0 R0 0 LR0 CR15.L CR14.L;   AGG.MAX.FIRST LR1 CR15.L;;   # R_ACC[4] = max(A[3] * w)
     ADD                 LR5 LR5 CR1;;
     ACTIVATE.QUANTIZE   identity CR15.L CR14.L CR7 LR5;;          # output row 2
-    ADD                 LR5 LR5 CR1;;
-    ACTIVATE.QUANTIZE   relu CR15.L CR14.L CR7 LR5;;              # relu row: relu(R_ACC), quantized
+    ACTIVATE.QUANTIZE   relu CR15.L CR14.L CR10 LR0;;             # relu row: relu(R_ACC), quantized
     HALT;;

@@ -22,16 +22,14 @@ band      = "cell_row_count + (height - cell_row_start) * (1 - min(1, cell_row_c
 # the shape grammar has no comparison. An empty band is refused by y's shape.
 inside    = "1 / max(0, min(1, height - cell_row_start - band + 1))"
 stride    = "(width + 2) * 2"                               # padded input row stride (rows)
-x_band    = "base(x) + cell_row_start * stride"             # the band's top halo row
+x_start   = "cell_row_start * stride"                       # the band's top halo row, in x
+width_band = "halves(width, band)"                          # CR7: W low, the band's coarse rows high
 tap_delta = "stride - 4"                                    # next tap-row address delta
 chan_tiles = "2"                                            # 128-lane tiles per cell
 phases    = "8"                                             # fine phases per axis
 phase_gap = "16 * width - 16"                               # output phase-row gap
 cell_gap  = "16 * width * 7"                                # output cell-row gap
-k_first   = "base(k)"                                       # one table for every cell
-k_band    = "base(k_cells) + cell_row_start * width * 9"   # the band's first cell's table
-no_step   = "0"                                             # table step per cell, shared
-cell_step = "9"                                             # table step per cell, stock
+k_start   = "cell_row_start * width * 9"                    # the band's first cell's table, in k_cells (stock)
 qf        = "case_qf"                                       # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, the table, y (the old image).
@@ -55,20 +53,19 @@ when = "stock"
 after = "x"
 
 [abi]
-x_band     = "CR2"
+x          = "CR2"
 y          = "CR3"
-k_first    = { register = "CR4", when = "not stock" }
-k_band     = { register = "CR4", when = "stock" }
+k          = { register = "CR4", when = "not stock" }
+k_cells    = { register = "CR4", when = "stock" }
 stride     = "CR5"
 tap_delta  = "CR6"
-width      = "CR7"
-band       = "CR8"
+width_band = "CR7"
+x_start    = "CR8"
 chan_tiles = "CR9"
 phases     = "CR10"
 phase_gap  = "CR11"
 cell_gap   = "CR12"
-no_step    = { register = "CR13", when = "not stock" }
-cell_step  = { register = "CR13", when = "stock" }
+k_start    = { register = "CR13", when = "stock" }
 qf         = "CR14"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.

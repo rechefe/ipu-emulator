@@ -18,13 +18,17 @@
       Output: (8*band_height,8*W,256), contiguous HWC.
 
     ABI (kernel.toml [abi]); CR0=0 CR1=1, hardware constants
-    CR2=input base at band's top halo row; CR3=output base
-    CR4=Ky base at first band cell; CR5=Kx base; CR6=scratch base
+    CR2=input base; CR3=output base
+    CR4=Ky base; CR5=Kx base; CR6=scratch base
     CR7=2*(W+2), padded spatial row stride for input AND scratch
-    CR8=W; CR9=band coarse height; CR10=8; CR11=2 channel tiles
-    CR12=128 cyclic slot step; CR13=2*W; CR15=128-lane FP32 dstructure
+    CR8.L=W, CR8.H=2*W; CR9=the band's end row (cell_row_start + band height)
+    CR10=8; CR11=2 channel tiles
+    CR12.L=128 cyclic slot step, CR12.H=the band's first coarse row
+    CR13=the band's first real tile in the input (cell_row_start * CR7 + 2)
+    CR15=128-lane FP32 dstructure
 
-    LR0=zero/slot0; LR1=coarse row/Ky offset; LR2=input row's first real tile
+    LR0=zero/slot0; LR1=coarse row (also the Ky row; from cell_row_start up to CR9);
+    LR2=input row's first real tile
     LR3=phase a; LR4=vertical tile or horizontal coarse column
     LR5=scratch store address or horizontal left-neighbor address
     LR6=walking tap address; LR7=weight scalar index; LR8=output cell origin
@@ -36,8 +40,8 @@
     all eight b phases; one Kx row is loaded per coarse column, not per tap.
     MULT data reads use snapshots, LR indexes are live; BLT.S reads snapshot LRs.
 -#}
-    SET LR0 CR0 ; SET LR1 CR0 ; SET LR2 CR11 ;;
-    SET LR8 CR0 ; SET LR13 CR12 ;;
+    SET LR0 CR0 ; SET LR1 CR12.H ; SET LR2 CR13 ;;
+    SET LR8 CR0 ; SET LR13 CR12.L ;;
     ADD LR14 LR13 LR13 ;;
 coarse_row_loop:
     LD.MULT R0 LR1 CR4 ; SET LR3 CR0 ; SET LR5 CR11 ;;
@@ -54,7 +58,7 @@ vertical_tile_loop:
     ADD LR7 LR7 CR10 ; ADD LR4 LR4 CR1 ;
     MULT.RC.VE LR0 LR7 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD ;
     ACTIVATE.EXACT identity CR15.L CR6 LR5 ;;
-    ADD LR5 LR5 CR1 ; BLT.S LR4 CR13 vertical_tile_loop ;;
+    ADD LR5 LR5 CR1 ; BLT.S LR4 CR8.H vertical_tile_loop ;;
     ADD LR3 LR3 CR1 ; INC LR5 4 ;;
     BLT.S LR3 CR10 vertical_phase_loop ;;
 
@@ -80,7 +84,7 @@ horizontal_phase_loop:
     ADD LR11 LR11 CR1 ;;
     BLT.S LR11 CR11 horizontal_tile_loop ;;
     ADD LR4 LR4 CR1 ; ADD LR5 LR5 CR11 ; INC LR8 16 ;;
-    BLT.S LR4 CR8 horizontal_cell_loop ;;
+    BLT.S LR4 CR8.L horizontal_cell_loop ;;
     ADD LR3 LR3 CR1 ; INC LR5 4 ;;
     BLT.S LR3 CR10 horizontal_row_loop ;;
     ADD LR1 LR1 CR1 ; ADD LR2 LR2 CR7 ;;
