@@ -54,9 +54,7 @@
       vertical:   on=1 (even rows), on_inv=2 (odd rows)
 
     ABI: kernel.toml's [abi] binds the CRs below.
-      CR0          x's stripe 0, read through the hardwired 0: x must sit at
-                   row 0
-                   (stripe 1 is LR5 = LR4 + CR7 rows on, through CR0 as well)
+      CR2          x (a table ID; stripe 0 is LR4, stripe 1 is LR5 = LR4 + CR7 rows on)
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
       CR9          y (stream TL; streams TR, BL, BR are LR9 = LR8 + k * CR10 rows on)
       CR10         c * tg: rows per stream of y
@@ -100,7 +98,7 @@
 
     SET                 LR8 CR0;                # destination row offset
     SET                 LR10 CR0;               # channel counter
-    LD.MULT        R0 LR4 CR0;;        # prime: stripe 0 of ch 0 (TL slot 0)
+    LD.MULT        R0 LR4 {{ cr.x }};;        # prime: stripe 0 of ch 0 (TL slot 0)
 
     # Zero R_ACC once: ACC.STRIDE never writes lanes 64..127, so without this
     # they would carry whatever R_ACC held at kernel start into every output
@@ -117,20 +115,20 @@ ch_loop:
 
     # -- Stream TL  (h=on=even cols, v=on=even rows) -------------------------
     ADD                 LR5 LR4 {{ cr.c }};
-    LD.MULT R0 LR5 CR0;
+    LD.MULT R0 LR5 {{ cr.x }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on LR0;;
-    LD.MULT R0 LR4 CR0;
+    LD.MULT R0 LR4 {{ cr.x }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on LR1;;
     ACTIVATE.EXACT identity CR15.L CR9 LR8;; # TL → DST_TL + ch (lanes 0..63 valid)
 
     # -- Stream TR  (h=on_inv=odd cols, v=on=even rows) ----------------------
     ADD                 LR5 LR4 {{ cr.c }};
-    LD.MULT R0 LR5 CR0;
+    LD.MULT R0 LR5 {{ cr.x }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on LR0;;
-    LD.MULT R0 LR4 CR0;
+    LD.MULT R0 LR4 {{ cr.x }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on LR1;;
     ADD                 LR9 LR8 {{ cr.phase_rows }};
@@ -138,10 +136,10 @@ ch_loop:
 
     # -- Stream BL  (h=on=even cols, v=on_inv=odd rows) ----------------------
     ADD                 LR5 LR4 {{ cr.c }};
-    LD.MULT R0 LR5 CR0;
+    LD.MULT R0 LR5 {{ cr.x }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on_inv LR0;;
-    LD.MULT R0 LR4 CR0;
+    LD.MULT R0 LR4 {{ cr.x }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on_inv LR1;;
     ADD                 LR9 LR9 {{ cr.phase_rows }};
@@ -149,13 +147,13 @@ ch_loop:
 
     # -- Stream BR  (h=on_inv=odd cols, v=on_inv=odd rows) -------------------
     ADD                 LR5 LR4 {{ cr.c }};
-    LD.MULT R0 LR5 CR0;
+    LD.MULT R0 LR5 {{ cr.x }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on_inv LR0;;
     # lr4 must advance BEFORE the load that uses the next channel's offset: LR
     # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 LR4 LR4 CR1;;       # src offset: next channel (+1 row)
-    LD.MULT R0 LR4 CR0;
+    LD.MULT R0 LR4 {{ cr.x }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on_inv LR1;;
     ADD                 LR9 LR9 {{ cr.phase_rows }};

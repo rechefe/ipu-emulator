@@ -107,11 +107,9 @@
     (destination row offset) and LR10 (channel counter) are set by the program's first words (the row strides are the hardwired CR1) (hardwired 1) is the channel loop's increment.
 
     CR0 IS NOT A FREE BASE: CR0 (0) and CR1 (1) are hardwired, and a host
-    write to either raises. unfold_16x16x192 reads its stripe-0 source base
-    through CR0 only because that base is row 0. Fold's stripe-0 destination
-    base is not 0, so it cannot use CR0 -- a real bug the direct-reference
-    test caught (stripe 0's rows silently went to XMEM row 0). CR14 is used
-    instead.
+    write to either raises. Fold's stripe-0 destination has a CR of its own
+    (CR14) -- through CR0 its rows would silently go to table 0, a real bug
+    the direct-reference test caught.
 
     MULT CYCLE-START CONTRACT (issue #157, as in unfold_16x16x192): MULT.RC.VV
     reads its Ra data (R0) as it was at the start of the cycle, so it cannot

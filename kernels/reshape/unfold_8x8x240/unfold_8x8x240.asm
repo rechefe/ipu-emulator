@@ -67,7 +67,7 @@
       vertical:   on=1 (even rows), on_inv=2 (odd rows)
 
     ABI: kernel.toml's [abi] binds the CRs below.
-      CR0          x, read through the hardwired 0: x must sit at row 0
+      CR2          x (a table ID)
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
       CR9          y (stream 0; streams 1..3 are LR9 = LR8 + k * CR10 rows on)
       CR10         c * tg: rows per stream of y
@@ -112,7 +112,7 @@
 {% set ch_index   = "LR10" %}  {# channel counter 0..239 #}
 {% set ch_limit   = cr.c  %}  {# 240 = C #}
 
-{% set SRC_BASE   = "CR0"  %}  {# stripe base (row 0) #}
+{% set SRC_BASE   = cr.x  %}  {# x, the stripe table #}
 {% set ONE        = "CR1"  %}  {# hardwired read-only 1 #}
 {% set ONES_BASE  = "CR8"  %}  {# one row of 1.0, for r_cyclic init #}
 {% set DST_S0     = "CR9"  %}  {# y: every stream's output #}
