@@ -86,6 +86,7 @@
 {%- set sub_bound = "LR15" %}
 {%- set data_step = data_stride if groups > 1 else row_stride %}
 {%- set DATA_BASE = cr.x %}
+{%- set ZERO = "CR0" %}
 {%- set ONE = "CR1" %}
 {%- set BETA_BASE = cr.beta %}
 {%- set ONES_BASE = cr.ones %}
@@ -127,7 +128,7 @@
 {%- endmacro %}
 
 {%- macro start(ptr, stride, grouped) -%}
-    SET     {{ ptr }}  {{ DATA_BASE }};;
+    SET     {{ ptr }}  {{ ZERO }};;
     SUB     {{ ptr }}  {{ ptr }}  {{ stride }};;
 {%- if grouped and groups > 1 %}
     ADD     {{ ptr }}  {{ ptr }}  {{ tg_off }};;
@@ -135,7 +136,7 @@
 {%- endmacro %}
 
 {%- macro counter() -%}
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 {%- endmacro %}
 
@@ -156,8 +157,8 @@
     BLT.S {{ ch_index }} {{ bound }} {{ label }};;
 {%- endmacro %}
 
-    SET     {{ rc_slot0 }}  {{ DATA_BASE }};;
-    SET     {{ mask_shift }}  {{ DATA_BASE }};;
+    SET     {{ rc_slot0 }}  {{ ZERO }};;
+    SET     {{ mask_shift }}  {{ ZERO }};;
     SET     {{ ch_limit }}  {{ N_CH }};;
 {%- if groups > 1 %}
     SET     {{ data_stride }}  {{ ROW_STRIDE }};;
@@ -167,9 +168,9 @@
 {%- endif %}
     SET     {{ row_stride }} {{ ROW_STRIDE }};;
 {%- if groups > 1 %}
-    SET     {{ tg_index }}  {{ DATA_BASE }};;
+    SET     {{ tg_index }}  {{ ZERO }};;
     ADD     {{ tg_index }}  {{ tg_index }}  {{ ONE }};;
-    SET     {{ tg_off }} {{ DATA_BASE }};;
+    SET     {{ tg_off }} {{ ZERO }};;
 tg_loop:
 {%- endif %}
 
@@ -249,7 +250,7 @@ step3_done:
 {#- ---- pass 5: normalized = centered * 1/sigma, in place ---- #}
     LD.MULT        R0 {{ rc_slot0 }} {{ INVSTD_BASE }};;
 {{ start(read_ptr, row_stride, false) }}
-    SET     {{ write_ptr }}  {{ DATA_BASE }};;
+    SET     {{ write_ptr }}  {{ ZERO }};;
 {{ counter() }}
     LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
@@ -269,7 +270,7 @@ step5_loop:
 {{ start(read_ptr, row_stride, false) }}
 {{ start(write_ptr, data_step, true) }}
 {{ counter() }}
-    SET     {{ gamma_idx }} {{ DATA_BASE }};;
+    SET     {{ gamma_idx }} {{ ZERO }};;
     SET     {{ beta_idx }} {{ LANES }};;
 {%- if wide %}
     SET     {{ sub_bound }} {{ LANES }};;
@@ -281,7 +282,7 @@ step5_loop:
     LD.MULT        R0 {{ row_stride }} {{ GAMMA_BASE }};;
     LD.MULT        R1 {{ row_stride }} {{ BETA_BASE }};;
 {{ counter() }}
-    SET     {{ gamma_idx }} {{ DATA_BASE }};;
+    SET     {{ gamma_idx }} {{ ZERO }};;
     SET     {{ beta_idx }} {{ LANES }};;
 {{ build_count(sub_bound, channels - 128) }}
 {{ pass6_body("step6B_loop", sub_bound) }}
