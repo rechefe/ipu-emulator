@@ -11,8 +11,8 @@ pack transform and its stored format, must be what the consumer declares, or
 the step fails before it runs.
 
 A step places its own regions by first fit, or where ``at`` puts them
-(``chain.run(k, params, inputs, at={"y": 0})``: an output at row 0, for a
-program that reads its base through ``CR0``), and knows nothing of an
+(``chain.run(k, params, inputs, at={"y": 64})``: an output at row 64), and
+knows nothing of an
 earlier step's residents but its inputs, so a step may overwrite a resident it does
 not take. The chain keeps track: a resident that a later step's placed regions
 cover is stale, and passing it fails. A resident the chain
@@ -33,6 +33,16 @@ resident's rows as values (NX8: decoded with each row's metadata),
 written) (a copy to
 row 0, a repack the host computes, a mutation in place) and returns them as
 a resident; what a write covers goes stale, as after a step.
+
+A tensor's CR holds a table ID, not a row (:mod:`ipu_harness.table_ids`): each
+step gives its tensors IDs and binds them to their rows on the model. A
+resident remembers the ID its producer gave it. The consumer keeps that ID when
+it is free, else *retags* the table (another ID, the rows never move: the
+hardware retags banks); :attr:`Chain.retags` lists them. A table on a hardwired
+CR (``CR0``: table 0) is *pinned*, its ID is not the binder's to change, so a
+buffer a kernel wrote is never handed to it: the step is refused, and the host
+copies the rows first (:meth:`Chain.write`; :attr:`Chain.host_writes` counts the
+host's writes). A host-written resident goes to a pinned table.
 
 Only XMEM is the chain's state. Each step is a kernel start
 (:mod:`ipu_harness.kernel_start`): the step writes its ``[abi]`` registers and
@@ -64,14 +74,29 @@ from ipu_harness.params import CasePlan, PlanError, plan_case
 from ipu_harness.placement import Region, place
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import RunOptions, RunResult, SharedModel, run_kernel
+from ipu_harness.table_ids import PINNED
 from ipu_harness.variants import Variant, as_variant
 from ipu_isa.formats import addressable_rows
 from ipu_isa.geometry import LANES
 
-__all__ = ["Chain", "ChainStep", "Resident"]
+__all__ = ["Chain", "ChainStep", "Resident", "Retag"]
 
 #: The case name a chain step reports.
 _STEP_CASE = "chain"
+
+
+@dataclass
+class _Provenance:
+    """Who wrote a resident's rows, which the chain updates as steps run.
+
+    Attributes:
+        table_id: The table ID the kernel that wrote it gave it (``None``: the
+            host wrote it, or the parts have different IDs).
+        kernel_written: A kernel wrote it, all or in part.
+    """
+
+    table_id: int | None = None
+    kernel_written: bool = False
 
 
 @dataclass(frozen=True)
@@ -89,6 +114,7 @@ class Resident:
             same rows is a different tensor.
         parent: The resident this is a :meth:`slice` of (``None``: a whole
             tensor); it is in XMEM while its parent is.
+        provenance: Who wrote it (see :attr:`table_id`, :attr:`kernel_written`).
     """
 
     base_row: int
@@ -97,6 +123,19 @@ class Resident:
     format: Variant
     step: int = 0
     parent: Resident | None = field(default=None, compare=False, repr=False)
+    provenance: _Provenance = field(default_factory=_Provenance, compare=False, repr=False)
+
+    @property
+    def table_id(self) -> int | None:
+        """The table ID its producer gave it, which a consumer keeps when it
+        can; ``None`` for rows the host wrote."""
+        return self.provenance.table_id
+
+    @property
+    def kernel_written(self) -> bool:
+        """Whether a kernel wrote it (all or in part): never handed to a
+        pinned table."""
+        return self.provenance.kernel_written
 
     def __post_init__(self) -> None:
         if self.base_row < 0 or self.rows < 1:
@@ -124,12 +163,38 @@ class Resident:
                 f"of {self.rows} rows"
             )
         return Resident(
-            self.base_row + first_row, rows, self.pack, self.format, self.step, parent=self
+            self.base_row + first_row,
+            rows,
+            self.pack,
+            self.format,
+            self.step,
+            parent=self,
+            provenance=replace(self.provenance),
         )
 
     def root(self) -> Resident:
         """The whole tensor this is (a slice of)."""
         return self if self.parent is None else self.parent.root()
+
+
+@dataclass(frozen=True)
+class Retag:
+    """A table a chain step retagged: the ID its resident input had where it
+    was produced was not free here, so the step's table has another.
+
+    Attributes:
+        step: The chain step (counted from 0).
+        kernel: The kernel.
+        tensor: The input.
+        was: The ID the producer gave it.
+        now: The ID it has in this step.
+    """
+
+    step: int
+    kernel: str
+    tensor: str
+    was: int
+    now: int
 
 
 @dataclass(frozen=True)
@@ -139,10 +204,12 @@ class ChainStep:
     Attributes:
         result: The kernel's run, as ``run_kernel`` gives it.
         resident: This step's outputs, by name, ready to feed the next step.
+        retags: The inputs whose table this step retagged.
     """
 
     result: RunResult
     resident: Mapping[str, Resident]
+    retags: tuple[Retag, ...] = ()
 
 
 class Chain:
@@ -171,6 +238,20 @@ class Chain:
         self._writers = 0  # steps, host writes and reserves: Resident.step
         self._live: list[Resident] = []
         self._held: list[Resident] = []
+        self._retags: list[Retag] = []
+        self._host_writes = 0
+
+    @property
+    def retags(self) -> tuple[Retag, ...]:
+        """Every table a step retagged, in order."""
+        return tuple(self._retags)
+
+    @property
+    def host_writes(self) -> int:
+        """How many times the host wrote rows between steps (:meth:`write`):
+        the copies a chain pays where a kernel-written buffer cannot be handed
+        over (to a pinned table)."""
+        return self._host_writes
 
     def hold(self, resident: Resident) -> Resident:
         """Keep ``resident`` in XMEM until :meth:`release`: later steps place
@@ -313,7 +394,10 @@ class Chain:
         for index, word in enumerate(metadata or ()):
             self.model.write_xmem_metadata((base + index) * row_bytes, word)
         self._forget_written({region.name: target} if target is not None else {}, [region])
+        self._host_writes += 1
         if target is not None:
+            target.provenance.table_id = None  # the host's rows: no ID to keep
+            target.provenance.kernel_written = False
             return target
         resident = Resident(base, rows, pack, fmt, self._writer())
         self._live.append(resident)
@@ -439,6 +523,7 @@ class Chain:
                 region (placement), or a region is pinned on a held resident.
         """
         manifest = default_registry().kernel(kernel) if isinstance(kernel, str) else kernel
+        step = self._steps
         decl = CaseDecl(_STEP_CASE, MappingProxyType(dict(params)))
         plan = plan_case(manifest, params, self.format, case=decl)
         targets = self._targets(plan, at or {})
@@ -448,6 +533,7 @@ class Chain:
             inputs,
         )
         pinned, arrays = self._split_inputs(plan, inputs)
+        _refuse_pinned_handover(plan, inputs)
         case = Case(
             name=_STEP_CASE,
             values=MappingProxyType(dict(params)),
@@ -473,6 +559,14 @@ class Chain:
             MappingProxyType(reserved),
             avoid,
             self._steps,
+            MappingProxyType(
+                {
+                    n: v.table_id
+                    for n, v in inputs.items()
+                    if isinstance(v, Resident) and v.table_id is not None
+                }
+            ),
+            frozenset(n for n, v in inputs.items() if isinstance(v, Resident) and v.kernel_written),
         )
         options = self._step_options()
         self._steps += 1
@@ -487,8 +581,15 @@ class Chain:
         resident = {**_resident(result, plan, writer), **targets}
         if result.placement is None or not result.halted:
             resident = {}
+        for name, produced in resident.items():
+            _written_by_kernel(produced, result.table_ids.get(name))
+        retags = tuple(
+            Retag(step, manifest.name, name, was, now)
+            for name, (was, now) in result.retagged.items()
+        )
+        self._retags.extend(retags)
         self._live.extend(t for t in resident.values() if not _among(t, targets.values()))
-        return ChainStep(result, MappingProxyType(resident))
+        return ChainStep(result, MappingProxyType(resident), retags)
 
     def _targets(self, plan: CasePlan, at: Mapping[str, int | Resident]) -> dict[str, Resident]:
         """The ``Resident`` values of ``at``: live, and laid out as the outputs."""
@@ -541,6 +642,39 @@ class Chain:
 
         self._live = [t for t in self._live if kept(t)]
         self._live.extend(t for t in targets.values() if not self._is_live(t))
+
+
+def _written_by_kernel(resident: Resident, table_id: int | None) -> None:
+    """Record that a kernel wrote ``resident`` with table ID ``table_id``: it,
+    and the tensors it is a slice of, are kernel-written; a tensor whose parts
+    have different IDs has none."""
+    resident.provenance.kernel_written = True
+    resident.provenance.table_id = table_id
+    parent = resident.parent
+    while parent is not None:
+        if not parent.provenance.kernel_written:
+            parent.provenance.table_id = table_id
+        elif parent.provenance.table_id != table_id:
+            parent.provenance.table_id = None
+        parent.provenance.kernel_written = True
+        parent = parent.parent
+
+
+def _refuse_pinned_handover(plan: CasePlan, inputs: Mapping[str, Array | Resident]) -> None:
+    """Refuse, before the step writes anything, a kernel-written resident on a
+    pinned table (a tensor bound to ``CR0``)."""
+    manifest = plan.manifest
+    for name, value in inputs.items():
+        if (
+            isinstance(value, Resident)
+            and value.kernel_written
+            and manifest.abi.get(name, "").upper() in PINNED
+        ):
+            raise ConfigurationError(
+                f"{manifest.name}: input {name} (rows {_rows(value)}) was written by a kernel "
+                f"and {manifest.abi[name]} is a pinned table: a buffer is never handed over "
+                "through a pinned table; copy it with Chain.write"
+            )
 
 
 def _checked_at(

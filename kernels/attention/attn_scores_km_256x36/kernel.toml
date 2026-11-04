@@ -25,7 +25,6 @@ qf = "case_qf"           # the case's QF half (0: FP32 ignores it)
 # declaration order reproduces it (E07-12/13).
 [inputs.b]                         # the selected head's Q, channel-major: row c holds n_tok queries
 shape = ["d", "n_tok"]
-row = 0
 
 [inputs.a]                         # the selected head's K, key-major: row s holds key s's d channels
 shape = ["n_tok", "d"]
@@ -36,7 +35,7 @@ shape = ["n_tok", "n_tok"]
 # ACTIVATE.EXACT, one row per store, in row order
 
 [abi]
-b = "CR0"        # read through the hardwired 0: b is pinned at row 0
+b = "CR0"        # table 0 (pinned): the hardwired 0; the tensor is placed anywhere
 a = "CR9"        # K_BASE_KM
 y = "CR2"        # S_BASE
 q_start_g0 = "CR5"

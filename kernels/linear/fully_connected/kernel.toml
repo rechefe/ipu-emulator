@@ -27,7 +27,6 @@ qf            = "case_qf"            # the case's QF half: the MULT's and the st
 # addresses: x at 0x0, w at 0x20000, y at 0x40000 (a row is 128 bytes in NX8).
 [inputs.x]
 shape = ["samples", "in_features"]
-row = 0
 range = { nx8 = [-4, 4] }                         # gen.py:extremes: every element at an end
 
 [inputs.w]
@@ -41,7 +40,7 @@ shape = ["samples", "out_features"]
 row = "262144 / row_bytes"                        # byte 0x40000
 
 [abi]
-x             = "CR0"                # pinned at row 0: the hardwired 0
+x             = "CR0"                # table 0 (pinned): the hardwired 0; the tensor is placed anywhere
 y             = "CR2"
 row_step      = "CR3"
 element_step  = "CR4"
@@ -55,6 +54,13 @@ last_element  = "CR11"
 cyclic_index  = "CR12"
 w             = "CR13"
 qf            = "CR14"               # read as CR14.L
+
+# x is read once per sample and w once per sample too; the element loop's last
+# prefetch reads the row past w (LR14 steps once more before the loop exits).
+[tables]
+x = {}
+w = { repetitions = "samples", overhead_rows = 1 }
+y = {}
 
 [golden]
 # y = w @ x per sample, from the shared ops.linear (reference.py) on the inputs

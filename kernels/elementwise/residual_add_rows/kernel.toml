@@ -29,7 +29,6 @@ qf         = "case_qf"                     # the case's QF half (0: FP32 ignores
 # lanes; [144, 256] -> 288 rows (2 per channel); [30, 128] -> 30 packed rows.
 [inputs.a]
 shape = ["channels / per_row", "per_row * tokens"]
-row = 0                             # the program reads a's base through CR0
 
 [inputs.b]
 shape = ["channels / per_row", "per_row * tokens"]
@@ -38,7 +37,7 @@ shape = ["channels / per_row", "per_row * tokens"]
 shape = ["channels / per_row", "per_row * tokens"]   # ACTIVATE.EXACT identity: FP32 row store
 
 [abi]
-a          = "CR0"                  # hardwired 0: a is pinned at row 0 (E06 gap G5)
+a          = "CR0"                  # table 0 (pinned): the hardwired 0; the tensor is placed anywhere
 y          = "CR3"
 zero       = "CR4"
 ptr_start  = "CR5"

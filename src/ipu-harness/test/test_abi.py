@@ -76,10 +76,11 @@ TWO = {FP32: 0x40000000, E3: 0x138000, E4: 0x148000}
 
 
 @pytest.mark.parametrize("fmt", [FP32, E3, E4])
-def test_scale_bases_and_integers_are_the_same_in_every_format_and_s_is_encoded(tmp_path, fmt):
+def test_scale_table_ids_and_integers_are_the_same_in_every_format_and_s_is_encoded(tmp_path, fmt):
     m = kernel(tmp_path, SCALE.format(unit=""))
     got = writes(m, {"rows": 4, "s": 2.0}, fmt)
-    assert {k: got[k] for k in ("CR2", "CR3", "CR4")} == {"CR2": 0, "CR3": 4, "CR4": 4}
+    # x and y are tables 0 and 1, whatever their rows; rows is the integer 4.
+    assert {k: got[k] for k in ("CR2", "CR3", "CR4")} == {"CR2": 0, "CR3": 1, "CR4": 4}
     assert got["CR5"] == TWO[fmt]
     assert got["CR8"] == 0xFFFFFFFC  # -4, two's complement in 32 bits
     # The default DS in CR15.L: valid_elements 128 in bits 7:0, one partition
@@ -93,41 +94,28 @@ def test_a_negative_nx8_scalar_is_a_signed_constant(tmp_path):
     assert writes(m, {"rows": 4, "s": -3.0}, E4)["CR5"] == 0x148084
 
 
-def test_a_tensor_in_a_bytes_kernel_is_its_base_in_bytes(tmp_path, monkeypatch):
+def test_a_tensor_in_a_bytes_kernel_is_its_table_id_too(tmp_path, monkeypatch):
     monkeypatch.setattr(manifest_module, "BYTE_UNIT_KERNELS", frozenset({"legacy/scale"}))
     m = kernel(tmp_path, SCALE.format(unit=', unit = "bytes"'), family="legacy")
-    got = writes(m, {"rows": 4, "s": 2.0}, FP32)
-    assert (got["CR2"], got["CR3"]) == (0, 4 * 512)  # base row 4, 512 B a FP32 row
-    assert writes(m, {"rows": 4, "s": 2.0}, E4)["CR3"] == 4 * 128
+    for fmt in (FP32, E4):
+        got = writes(m, {"rows": 4, "s": 2.0}, fmt)
+        assert (got["CR2"], got["CR3"]) == (0, 1)  # not a base row, not bytes
 
 
-def test_a_tensor_binding_with_an_offset_is_its_base_plus_the_offset(tmp_path):
+def test_a_tensor_binding_with_an_offset_is_refused(tmp_path):
     toml = SCALE.format(unit="").replace('y    = "CR3"', 'y    = { register = "CR3", offset = -1 }')
-    m = kernel(tmp_path, toml)
-    assert m.abi["y"] == "CR3" and m.abi_offsets["y"] == -1
-    assert writes(m, {"rows": 4, "s": 2.0}, FP32)["CR3"] == 3  # y at row 4, minus 1
+    with pytest.raises(ManifestError, match="y: a CR holds a table ID, never an offset"):
+        kernel(tmp_path, toml)
 
 
-def test_a_stage_table_binds_a_region_at_its_base_whatever_the_kernels_offset(tmp_path):
-    toml = SCALE.format(unit="").replace('y    = "CR3"', 'y    = { register = "CR3", offset = -1 }')
-    m = kernel(tmp_path, toml)
-    plan = plan_case(m, {"rows": 4, "s": 2.0}, FP32)
-    got = {w.register: w.value for w in register_writes(plan, place(plan), abi={"y": "CR6"})}
-    assert got["CR6"] == 4  # y's base row: the [abi] offset is the kernel's binding only
-
-
-def test_a_derived_value_may_read_a_regions_base(tmp_path):
-    """Several offsets of one region (the x128 matmuls' weights + 1..3, E07)."""
+def test_a_derived_value_over_a_regions_base_cannot_be_bound(tmp_path):
+    """A second CR into one region (the x128 matmuls' weights + 1..3) is an LR's job."""
     toml = SCALE.format(unit="").replace(
         'neg = "-rows"', 'neg = "-rows"\ny1 = "base(y) + 1"\ny2 = "y1 + rows"'
     )
     toml = toml.replace('neg  = "CR8"', 'neg  = "CR8"\ny1   = "CR6"\ny2   = "CR7"')
-    m = kernel(tmp_path, toml)
-    assert m.placed == {"y1": frozenset({"y"}), "y2": frozenset({"y"})}
-    plan = plan_case(m, {"rows": 4, "s": 2.0}, FP32)
-    assert "y1" not in plan.derived and plan.derived["neg"] == -4
-    got = writes(m, {"rows": 4, "s": 2.0}, FP32)
-    assert (got["CR6"], got["CR7"]) == (5, 9)  # y at row 4: 4 + 1, then 5 + 4
+    with pytest.raises(ManifestError, match=r"binds y1, a value over base\(y\), to CR6"):
+        kernel(tmp_path, toml)
 
 
 @pytest.mark.parametrize(("fmt", "row", "stride"), [(FP32, 256, 1), (E4, 1024, 4)])
@@ -144,7 +132,7 @@ def test_a_pin_and_a_placed_value_may_read_the_formats_row_bytes(tmp_path, fmt, 
     plan = plan_case(m, {"rows": 4, "s": 2.0}, fmt)
     assert plan.pins["y"] == row and "stride" not in plan.derived
     got = writes(m, {"rows": 4, "s": 2.0}, fmt)
-    assert (got["CR3"], got["CR6"]) == (row, stride)
+    assert (got["CR3"], got["CR6"]) == (1, stride)  # y is table 1, wherever it is pinned
 
 
 @pytest.mark.parametrize(
@@ -167,30 +155,15 @@ def test_only_a_pin_and_abi_read_row_bytes(tmp_path, derived, where, match):
         kernel(tmp_path, toml)
 
 
-def test_a_region_may_reach_the_program_only_through_a_derived_value(tmp_path):
-    """A region bound at a parameter-dependent offset (sample_descriptors'
-    per-cell table, E07-15) needs no binding of its own; one that no bound
-    value reads still does."""
+def test_every_region_is_bound_itself(tmp_path):
+    """A region reaches the program through its own CR, not through a derived value."""
     toml = SCALE.format(unit="").replace('neg = "-rows"', 'neg = "-rows"\nyr = "base(y) + rows"')
-    bound = toml.replace('y    = "CR3"', 'yr   = "CR3"')
-    got = writes(kernel(tmp_path, bound), {"rows": 4, "s": 2.0}, FP32)
-    assert got["CR3"] == 8  # y at row 4, plus rows
     with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
-        kernel(tmp_path / "unbound", toml.replace('y    = "CR3"\n', ""))
-    # Bound only in some cases: y, which always exists, would lose its base.
+        kernel(tmp_path, toml.replace('y    = "CR3"\n', ""))
     flagged = toml.replace("[params]\n", '[params]\nflag = { type = "bool", default = true }\n')
-    flagged = flagged.replace('y    = "CR3"', 'yr   = { register = "CR3", when = "flag" }')
-    with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
+    flagged = flagged.replace('y    = "CR3"', 'y    = { register = "CR3", when = "flag" }')
+    with pytest.raises(ManifestError, match="takes its tensor's condition"):
         kernel(tmp_path / "conditional", flagged)
-
-
-def test_a_bytes_kernels_base_counts_bytes(tmp_path, monkeypatch):
-    monkeypatch.setattr(manifest_module, "BYTE_UNIT_KERNELS", frozenset({"elementwise/scale"}))
-    toml = SCALE.format(unit=', unit = "bytes"').replace(
-        'neg = "-rows"', 'neg = "-rows"\nyb = "base(y) + 1"'
-    )
-    m = kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\nyb   = "CR6"'))
-    assert writes(m, {"rows": 4, "s": 2.0}, FP32)["CR6"] == 4 * 512 + 1
 
 
 @pytest.mark.parametrize(
@@ -221,14 +194,6 @@ def test_a_placed_value_cannot_be_the_cost(tmp_path):
     )
     with pytest.raises(ManifestError, match=r"\[kernel\] cost 'w' reads \['w'\]"):
         kernel(tmp_path, toml.replace('neg = "-rows"', 'neg = "-rows"\nw = "base(y)"'))
-
-
-def test_a_stage_abi_may_bind_a_placed_value(tmp_path):
-    toml = SCALE.format(unit="").replace('neg = "-rows"', 'neg = "-rows"\ny1 = "base(y) + 1"')
-    m = kernel(tmp_path, toml)
-    plan = plan_case(m, {"rows": 4, "s": 2.0}, FP32)
-    got = {w.register: w.value for w in register_writes(plan, place(plan), abi={"y1": "CR8"})}
-    assert got["CR8"] == 5
 
 
 def test_a_derived_ds_binds_any_cr(tmp_path):
@@ -314,14 +279,12 @@ def test_a_misshapen_cr_helper_call_is_a_load_error(tmp_path, expression, match)
         kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\nd    = "CR13"'))
 
 
-def test_a_tensor_pinned_at_row_0_can_be_read_through_cr0(tmp_path):
-    toml = SCALE.format(unit="").replace(
-        '[inputs.x]\nshape = ["rows", 128]', '[inputs.x]\nshape = ["rows", 128]\nrow = 0'
-    )
-    toml = toml.replace('x    = "CR2"', 'x    = "CR0"')
+def test_a_tensor_bound_to_cr0_is_table_0_and_sits_anywhere(tmp_path):
+    toml = SCALE.format(unit="").replace('x    = "CR2"', 'x    = "CR0"')
     m = kernel(tmp_path, toml)
     got = writes(m, {"rows": 4, "s": 2.0}, FP32)
     assert "CR0" not in got and "CR2" not in got  # nothing is written for x
+    assert got["CR3"] == 1  # table 0 is x's: y takes the next ID
     assert template_names(m)["cr"]["x"] == "CR0"
 
 
@@ -348,7 +311,7 @@ def test_template_names_and_apply_through_the_register_file(tmp_path):
     plan = plan_case(m, {"rows": 4, "s": 2.0}, FP32)
     model = ReferenceModel(ElementFormat.FP32)
     apply(model, register_writes(plan, place(plan)))
-    assert [model.read_register("cr", i) for i in (2, 3, 4, 5)] == [0, 4, 4, 0x40000000]
+    assert [model.read_register("cr", i) for i in (2, 3, 4, 5)] == [0, 1, 4, 0x40000000]
     assert model.read_register("cr", 8) == 0xFFFFFFFC
 
 
@@ -399,39 +362,22 @@ def test_a_value_that_does_not_fit_a_register_is_located(tmp_path):
     assert error.value.key == "abi.huge"
 
 
-# --- one register for two pinned regions (vector_tour's acc and relu, E07-26) -------------
+# --- one register for two regions -------------------------------------------------------
 
-#: ``y2`` is stored right after ``y``'s 4 rows; the program reaches it from CR3.
+#: ``y2`` is another output; both are bound to CR3.
 TWO_OUTPUTS = (
     SCALE.format(unit="")
     .replace(
         '[outputs.y]\nshape = ["rows", 128]\n',
-        "[outputs.y]\nshape = [4, 128]\nrow = 8\n\n[outputs.y2]\nshape = [4, 128]\nrow = ROW\n",
+        "[outputs.y]\nshape = [4, 128]\n\n[outputs.y2]\nshape = [4, 128]\n",
     )
-    .replace('y    = "CR3"', 'y    = "CR3"\ny2   = { register = "CR3", offset = -4 }')
+    .replace('y    = "CR3"', 'y    = "CR3"\ny2   = "CR3"')
 )
 
 
-def test_two_pinned_regions_share_a_register_that_reaches_both(tmp_path):
-    m = kernel(tmp_path, TWO_OUTPUTS.replace("ROW", "12"))
-    assert writes(m, {"rows": 4, "s": 2.0}, FP32)["CR3"] == 8
-
-
-@pytest.mark.parametrize(
-    "row",
-    [pytest.param("13", id="row-plus-offset-9-not-8"), pytest.param('"rows + 8"', id="expression")],
-)
-def test_regions_whose_pins_disagree_do_not_share_a_register(tmp_path, row):
+def test_two_regions_may_not_share_a_register_unless_their_conditions_exclude(tmp_path):
     with pytest.raises(ManifestError, match="y2 and y both bind CR3"):
-        kernel(tmp_path, TWO_OUTPUTS.replace("ROW", row))
-
-
-def test_a_shared_register_a_caller_pin_splits_is_refused(tmp_path):
-    m = kernel(tmp_path, TWO_OUTPUTS.replace("ROW", "12"))
-    plan = plan_case(m, {"rows": 4, "s": 2.0}, FP32)
-    with pytest.raises(PlanError, match="y2 .region base -4. = 8, but y .region base. put 16") as e:
-        register_writes(plan, place(plan, pins={"y": 16}))  # a chain places y elsewhere
-    assert e.value.key == "abi.y2"
+        kernel(tmp_path, TWO_OUTPUTS)
 
 
 # --- the projections' 13 CRs (guards E07-02) ----------------------------------------------
@@ -524,7 +470,7 @@ PROJECTIONS = {
 
 
 @pytest.mark.parametrize("name", sorted(PROJECTIONS))
-def test_the_projections_abi_reproduces_todays_crs(tmp_path, name):
+def test_the_projections_abi_reproduces_todays_crs_but_the_table_ids(tmp_path, name):
     k, n_out, n_tok, n_tg, crs = PROJECTIONS[name]
     toml = PROJECTION.format(k=k, n_out=n_out, n_tg=n_tg, n_tok=n_tok)
     m = kernel(tmp_path, toml, family="projections", name=name)
@@ -532,6 +478,7 @@ def test_the_projections_abi_reproduces_todays_crs(tmp_path, name):
     plan = plan_case(m, {}, FP32)
     placement = place(plan, {n: stored_rows(t, plan) for n, t in m.tensors.items()})
     got = {int(w.register[2:]): w.value for w in register_writes(plan, placement)}
-    today = {cr: value & 0xFFFFFFFF for cr, value in enumerate(crs, start=2)}
+    ids = (0, 1, 2)  # data, weights, out: table IDs, not the old harness's rows
+    today = {cr: value & 0xFFFFFFFF for cr, value in enumerate((*ids, *crs[3:]), start=2)}
     # The harness writes the default DS in CR15.L, the state's reset value.
     assert got == {**today, 15: IpuState().regfile.get_cr(15)}

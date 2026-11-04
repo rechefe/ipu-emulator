@@ -42,15 +42,11 @@ TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
 CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 GOLDEN_KEYS = ("reference", "op", "tolerance")
 TIER_KEYS = ("tier", "rtol", "atol", "ulps", "why")
-BINDING_KEYS = ("register", "offset", "when")
+BINDING_KEYS = ("register", "when")
 
 
 #: The keys of one table entry (``[tables]``'s ``<tensor> = {...}``).
-TABLE_KEYS = ("repetitions", "jump_back", "overhead_rows", "whole_run", "also_via", "pending")
-
-#: An ``also_via`` entry naming the hardwired zero: the program reaches the
-#: table through ``CR0`` with absolute rows in the offset LR.
-ZERO_VIEW = "CR0"
+TABLE_KEYS = ("repetitions", "jump_back", "overhead_rows", "whole_run", "pending")
 
 
 @dataclass(frozen=True)
@@ -68,10 +64,6 @@ class TableDecl:
         whole_run: The table is needed from start to end (a reused staging
             buffer, a constant row): ``repetitions`` and ``jump_back`` are
             not checked.
-        also_via: Other ``[abi]`` names (a placed ``[derived]`` value such as
-            ``base(a) + 1``) or ``CR0`` that the program also reaches the
-            table through. A table has one base CR; this names today's
-            exceptions, reported as pending until the program is fixed.
         pending: A short reason, when the program breaks a rule the other
             keys cannot name (it reaches past its region, say): the table's
             errors are reported as pending with it until a change of the
@@ -83,7 +75,6 @@ class TableDecl:
     jump_back: int | str = 0
     overhead_rows: int | str = 0
     whole_run: bool = False
-    also_via: tuple[str, ...] = ()
     pending: str = ""
 
 
@@ -224,9 +215,7 @@ class KernelManifest:
         formats: The element formats it runs in.
         params: The parameters, by name.
         tensors: Inputs, outputs and scratch regions, by name.
-        abi: Name to ``"CR2"``..``"CR15"`` (``"CR0"`` for a
-            tensor pinned at row 0).
-        abi_offsets: A tensor's offset from its base row, when ``[abi]`` gives one.
+        abi: Name to ``"CR2"``..``"CR15"`` (``"CR0"`` for a tensor: table 0).
         abi_when: A binding's condition, when it has one (a conditional tensor's
             included).
         derived: Name to expression; a placed one (:attr:`placed`) reads a
@@ -266,7 +255,6 @@ class KernelManifest:
     stages: str | None = None
     fixed: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     cost: int | float | str = 0
-    abi_offsets: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
     abi_when: Mapping[str, Condition] = field(default_factory=lambda: MappingProxyType({}))
     doc: str | None = None
     registry: Path | None = None

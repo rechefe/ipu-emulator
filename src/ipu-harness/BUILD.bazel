@@ -476,6 +476,41 @@ py_pytest_test(
     ],
 )
 
+# Table IDs: the binder, the IDs a run writes and binds, a chain's keep, retag
+# and copy.
+py_pytest_test(
+    name = "test_table_ids",
+    srcs = ["test/test_table_ids.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":scale_kernel",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# No kernel relies on the value of a table ID: every kernel's default case
+# with the free IDs in a seeded random order. `enormous` and tagged nightly
+# (the heavy tier, --config=full), since it reruns every kernel's default case.
+py_pytest_test(
+    name = "test_table_ids_kernels",
+    size = "enormous",
+    srcs = ["test/test_table_ids_kernels.py"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 16,
+    tags = ["nightly"],
+    deps = [
+        ":ipu_harness_lib",
+        "//kernels:all_kernels",
+        "//src/ipu-kernels:ipu_kernels_all",
+        "//tools:pytest_shard_plugin",
+        requirement("pytest"),
+        requirement("torch"),
+    ],
+)
+
 # The ISA-wide program checks (round trip, slot and word codec, hardware
 # target) over every kernel's rendered default programs (E07-25): the kernel
 # tree's half of ipu-as's corpus tests.

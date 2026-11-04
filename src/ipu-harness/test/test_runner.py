@@ -153,11 +153,11 @@ bias = [false, true]
 
 
 def test_a_cr_bound_only_under_another_cases_condition_is_an_unbound_read(tmp_path):
-    """CR10 holds the bias base only when ``bias``; a case without it reading
+    """CR10 holds the bias table ID only when ``bias``; a case without it reading
     CR10 reads an unbound register, though the kernel's ``[abi]`` lists it."""
     directory = tmp_path / "conv"
     directory.mkdir()
-    (directory / "conv.asm").write_text("ADD LR0 LR0 CR10 ;;\nHALT ;;\n")
+    (directory / "conv.asm").write_text("LD.MULT R0 LR0 CR10 ;;\nHALT ;;\n")
     (directory / "kernel.toml").write_text(CONDITIONAL_TOML)
     manifest = load_manifest(directory)
     cases = {case.values["bias"]: case for case in expand(manifest)}

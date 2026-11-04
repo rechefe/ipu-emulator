@@ -18,7 +18,6 @@ qf       = "case_qf"                     # the case's QF half (0: FP32 ignores i
 [inputs.x]                    # 2 stripe(s) of 8 spatial rows, one row per channel
 shape = ["c", "h", "w"]
 pack  = "stripes"
-row   = 0                     # stripe 0 is read through CR0 (hardwired 0)
 
 [outputs.y]                   # the phases (0,0), (0,1), (1,0), (1,1), one after another
 shape = [4, "c", 64]
