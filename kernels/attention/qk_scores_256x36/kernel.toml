@@ -32,7 +32,7 @@ shape = ["n_tok", "n_tok"]
 # ACTIVATE.EXACT, one row per store, in row order
 
 [abi]
-b = "CR0"        # table 0 (pinned): the hardwired 0; the tensor is placed anywhere
+b = "CR2"        # K_BASE
 a = "CR9"        # QROW_BASE
 y = "CR3"        # S_BASE_G0
 k_start_g0 = "CR5"

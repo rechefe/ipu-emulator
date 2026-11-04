@@ -94,7 +94,7 @@
 {% set qrow_stride = "CR1"  %}  {# 1 = QROW stride in rows per query: the hardwired 1 #}
 
 {% set ZERO        = "CR0"  %}  {# hardwired read-only 0 #}
-{% set K_BASE      = "CR0"  %}  {# channel-major K base #}
+{% set K_BASE      = cr.b  %}  {# channel-major K base (b) #}
 {% set ONE         = "CR1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE      = cr.y  %}  {# S base (single key group) #}
 {% set K_START     = cr.k_start  %}  {# -1 row startup skew (first live = row 0) #}

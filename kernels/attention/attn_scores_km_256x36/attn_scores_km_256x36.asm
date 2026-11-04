@@ -60,7 +60,7 @@
 {% set key_limit   = cr.n_tok %}  {# 256 = N keys #}
 {% set key_stride  = "CR1" %}  {# 1 = rows per key in K: the hardwired 1 #}
 
-{% set Q_BASE      = "CR0"  %}  {# channel-major Q base #}
+{% set Q_BASE      = cr.b  %}  {# channel-major Q base (b) #}
 {% set ZERO        = "CR0"  %}  {# hardwired read-only 0 #}
 {% set ONE         = "CR1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE      = cr.y  %}  {# key-major score output base #}
