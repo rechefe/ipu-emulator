@@ -95,7 +95,7 @@
 {%- set lr_coff   = "LR5" -%}  {#- chunk row offset (one row per chunk) -#}
 {%- set lr_num    = "LR6" -%}  {#- numerator chunk row offset (per row) -#}
 {%- set lr_maxid  = "LR7" -%}  {#- R1 element index for maxvec[row] select (128 + row); Pass 4 reuses as lr_mask_row -#}
-{%- set lr_mask_row    = "LR7" -%}  {#- Pass 4 only: the R_MASK image's row, cr.rvec + 1 -#}
+{%- set lr_mask_row    = "LR7" -%}  {#- Pass 4 only: the R_MASK image's row offset in the rvec table (1) -#}
 {%- set lr_rslide = "LR8" -%}  {#- Pass-4 repack slide = RING - p*ps (element offset) -#}
 {%- set lr_c512   = "LR9" -%}  {#- holds RING=512 (for SUB src_a; SUB needs LR src_a) -#}
 {%- set lr_cdone  = "LR10" -%} {#- chunks completed by previous groups -#}
@@ -243,9 +243,8 @@ p3_row:
     ADD {{lr_coff}} {{lr_gbase}} CR0 ;;         {#- output chunk offset (group base) -#}
     SET {{lr_num}} CR0 ;
     SET {{lr_c512}} {{ cr.ring }} ;
-    SET {{lr_mask_row}} {{ cr.rvec }} ;;                        {#- lr_c512 = RING (512 elements); lr_mask_row = cr.rvec -#}
-    ADD {{lr_mask_row}} {{lr_mask_row}} CR1 ;;             {#- lr_mask_row = cr.rvec + 1, the R_MASK image -#}
-    LD.MASK {{lr_mask_row}} CR0 ;;         {#- R_MASK <- the image (8 per-partition slots), loaded once -#}
+    SET {{lr_mask_row}} CR1 ;;                                  {#- lr_c512 = RING (512 elements); lr_mask_row = 1, the R_MASK image's offset in the rvec table -#}
+    LD.MASK {{lr_mask_row}} {{ cr.rvec }} ;;       {#- R_MASK <- the image (8 per-partition slots, rvec + 1), loaded once -#}
 p4_chunk:
     LD.MULT.CYCLIC {{lr_num}} {{ cr.num }} {{lr_cyc}} ;
     SET {{lr_slide}} CR0 ;

@@ -191,9 +191,8 @@ p3_fold:
     ACTIVATE.EXACT reciprocal CR15.L {{ cr.rvec }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; RVEC <- 1/sum (folded) -#}
 
 {#- ---- fold the keep-mask into rvec once: rvec <- rvec * keep ---------- -#}
-    SET {{lr_maskrow}} {{ cr.log2e }} ;;
-    ADD {{lr_maskrow}} {{lr_maskrow}} CR1 ;;                {#- keep-mask row = CVEC row + 1 -#}
-    LD.MULT.CYCLIC {{lr_maskrow}} CR0 {{lr_cyc}} ;;    {#- R_CYCLIC = keep-mask -#}
+    SET {{lr_maskrow}} CR1 ;;                               {#- keep-mask row = CVEC row + 1: offset 1 in the log2e table -#}
+    LD.MULT.CYCLIC {{lr_maskrow}} {{ cr.log2e }} {{lr_cyc}} ;;    {#- R_CYCLIC = keep-mask -#}
     LD.MULT R1 {{lr_cyc}} {{ cr.rvec }} ;;                       {#- R1 = rvec -#}
     MULT.RC.VV   {{lr_cyc}} R1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = keep * rvec -#}
     ACC.ADD.FIRST ;

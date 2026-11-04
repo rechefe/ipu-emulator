@@ -86,7 +86,7 @@ qf          = "CR8"
 x = { repetitions = "1 + min(1, device_rows - 1)" }
 y = {}
 num = { repetitions = "1 + 2 * min(1, device_rows - 1)" }
-log2e = { also_via = ["CR0"] }
+log2e = {}
 max = {}
 rvec = {}
 fold = {}
