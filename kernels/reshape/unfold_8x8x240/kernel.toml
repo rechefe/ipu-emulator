@@ -13,9 +13,7 @@ pad = { type = "float", default = 0.0 }   # x's lanes 64..127 (paired_rows): tes
 
 [derived]
 tg       = "1"                       # rows per channel of a phase (16 tokens)
-y1       = "base(y) + c * tg"         # the phases' bases: y is phase-major
-y2       = "base(y) + 2 * c * tg"
-y3       = "base(y) + 3 * c * tg"
+phase_rows = "c * tg"                 # rows per stream: stream k is k * phase_rows on in y
 qf         = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 [inputs.x]                    # 1 stripe(s) of 8 spatial rows, one row per channel
@@ -36,17 +34,15 @@ after = "x"                   # between x and y, as the old map
 x        = "CR0"
 ones     = "CR8"
 y        = "CR9"
-y1       = "CR10"
-y2       = "CR11"
-y3       = "CR12"
+phase_rows = "CR10"
 c        = "CR7"            # the channel loop's bound
 qf       = "CR14"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = {}
-y = { repetitions = 240, also_via = ["y1", "y2", "y3"] }
-ones = { also_via = ["CR0"] }
+x = { overhead_rows = 1 }
+y = { repetitions = 240 }
+ones = {}
 
 [golden]
 op = "unfold"

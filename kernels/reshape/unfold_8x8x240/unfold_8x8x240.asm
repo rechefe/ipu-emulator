@@ -69,7 +69,8 @@
     ABI: kernel.toml's [abi] binds the CRs below.
       CR0          x, read through the hardwired 0: x must sit at row 0
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
-      CR9..CR12    streams 0..3 of y
+      CR9          y (stream 0; streams 1..3 are LR9 = LR8 + k * CR10 rows on)
+      CR10         c * tg: rows per stream of y
       CR7          the channel loop's bound (240)
     LR0 (R_CYCLIC / ACC.STRIDE slot 0), LR4 (source row offset), LR8
     (destination row offset) and LR10 (channel counter) are set by the program's first words (the row strides are the hardwired CR1) (hardwired 1) is the channel loop's increment. CR0 and CR1
@@ -107,16 +108,15 @@
 {% set src_stride = "CR1"  %}  {# 1 = src stride per channel (rows): the hardwired 1 #}
 {% set dst_stride = "CR1"  %}  {# 1 = dst stride per channel (rows): the hardwired 1 #}
 {% set dst_off    = "LR8"  %}  {# dst row offset = ch #}
+{% set stream_off = "LR9"  %}  {# streams 1..3: dst_off + k * PHASE_ROWS #}
 {% set ch_index   = "LR10" %}  {# channel counter 0..239 #}
 {% set ch_limit   = cr.c  %}  {# 240 = C #}
 
 {% set SRC_BASE   = "CR0"  %}  {# stripe base (row 0) #}
 {% set ONE        = "CR1"  %}  {# hardwired read-only 1 #}
 {% set ONES_BASE  = "CR8"  %}  {# one row of 1.0, for r_cyclic init #}
-{% set DST_S0     = "CR9"  %}  {# stream 0 output base #}
-{% set DST_S1     = "CR10" %}  {# stream 1 output base #}
-{% set DST_S2     = "CR11" %}  {# stream 2 output base #}
-{% set DST_S3     = "CR12" %}  {# stream 3 output base #}
+{% set DST_S0     = "CR9"  %}  {# y: every stream's output #}
+{% set PHASE_ROWS = "CR10" %}  {# c * tg: rows per stream of y #}
 {% set DSTRUCT    = "CR15" %}  {# reserved dstructure register #}
 
     SET {{ slot0 }} CR0;                                        # R_CYCLIC slot 0 / mask shift / ACC.STRIDE slot 0
@@ -153,12 +153,14 @@ ch_loop:
     # -- Stream 1  (h=on_inv=odd cols, v=on=even spatial rows) ---------------
     MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on {{ slot0 }};;
-    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S1 }} {{ dst_off }};;
+    ADD                 {{ stream_off }} {{ dst_off }} {{ PHASE_ROWS }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S0 }} {{ stream_off }};;
 
     # -- Stream 2  (h=on=even cols, v=on_inv=odd spatial rows) ---------------
     MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on_inv {{ slot0 }};;
-    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S2 }} {{ dst_off }};;
+    ADD                 {{ stream_off }} {{ stream_off }} {{ PHASE_ROWS }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S0 }} {{ stream_off }};;
 
     # -- Stream 3  (h=on_inv=odd cols, v=on_inv=odd spatial rows) ------------
     MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
@@ -168,7 +170,8 @@ ch_loop:
     ADD                 {{ src_off }} {{ src_off }} {{ src_stride }};;
     # Prefetch channel ch+1 into r0 for the next iteration's first MULT.
     # dst_off is read by the store as the forwarded value, so it is NOT touched in this word.
-    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S3 }} {{ dst_off }};
+    ADD                 {{ stream_off }} {{ stream_off }} {{ PHASE_ROWS }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S0 }} {{ stream_off }};
     LD.MULT R0 {{ src_off }} {{ SRC_BASE }};;
 
     # -- Advance pointers; loop ----------------------------------------------

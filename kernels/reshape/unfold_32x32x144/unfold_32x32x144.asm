@@ -43,10 +43,10 @@
     ABI: kernel.toml's [abi] binds the CRs below.
       CR0          x's stripe 0, read through the hardwired 0: x must sit at
                    row 0
-      CR13         x's stripe 1 (CR1 is read-only, so not CR1)
-      CR2..CR7     x's stripes 2..7
+                   (stripe k is LR5 = LR4 + k * 144 rows on, through CR0 as well)
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
-      CR9..CR12    streams TL, TR, BL, BR of y
+      CR9          y (stream TL; streams TR, BL, BR are LR6 / LR7 = LR8 / LR9 + k * CR10 rows on)
+      CR10         c * tg: rows per stream of y
       CR14.H       the channel loop's bound (144), above the QF half
     LR0 (R_CYCLIC slot 0, mask immediate, ACC.STRIDE slot 0), LR4 (source
     row offset within each stripe), LR8 (token group 0's destination row
@@ -96,38 +96,32 @@
 {% set acc_slot2   = "LR2"  %}  {# const 2: ACC.STRIDE r_acc slot 2 -> [64..95] #}
 {% set acc_slot3   = "LR3"  %}  {# const 3: ACC.STRIDE r_acc slot 3 -> [96..127] #}
 {% set src_off     = "LR4"  %}  {# source row offset within each stripe (= ch) #}
+{% set stripe_off  = "LR5"  %}  {# stripe k >= 1 of x: src_off + k * c, one stripe on per load (x is read through CR0) #}
+{% set stream_tg0  = "LR6"  %}  {# streams TR, BL, BR, token group 0: dst_off_tg0 + k * PHASE_ROWS #}
+{% set stream_tg1  = "LR7"  %}  {# the same, token group 1 #}
 {% set src_stride  = "CR1"  %}  {# 1 = source row stride per channel: the hardwired 1 #}
 {% set dst_stride  = acc_slot2  %}  {# 2 = destination row stride per channel (tg0, tg1): the same constant as slot 2 #}
 {% set dst_off_tg0 = "LR8"  %}  {# tg=0 destination row offset = ch*2 #}
 {% set dst_off_tg1 = "LR9"  %}  {# tg=1 destination row offset = ch*2 + 1 #}
 {% set ch_index    = "LR10" %}  {# channel counter (0..143) #}
-{% set ch_limit    = cr.qf ~ ".H"  %}  {# 144 = channel count: CR14's free high half #}
+{% set ch_limit    = cr.qf ~ ".H"  %}  {# 144 = channel count: CR14's free high half; also the rows from one stripe of x to the next #}
+{% set PHASE_ROWS  = "CR10" %}  {# c * tg: rows from one stream of y to the next #}
 
 {% set STRIPE0_TG0 = "CR0"  %}  {# x + 0*144 rows (stripe 0) #}
 {% set ONE         = "CR1"  %}  {# hardwired read-only 1 #}
-{% set STRIPE2_TG0 = "CR2"  %}  {# x + 2*144 rows (stripe 2) #}
-{% set STRIPE3_TG0 = "CR3"  %}  {# x + 3*144 rows (stripe 3) #}
-{% set STRIPE0_TG1 = "CR4"  %}  {# x + 4*144 rows (stripe 4) #}
-{% set STRIPE1_TG1 = "CR5"  %}  {# x + 5*144 rows (stripe 5) #}
-{% set STRIPE2_TG1 = "CR6"  %}  {# x + 6*144 rows (stripe 6) #}
-{% set STRIPE3_TG1 = "CR7"  %}  {# x + 7*144 rows (stripe 7) #}
 {% set ONES_BASE   = "CR8"  %}  {# one row of 1.0 (R_CYCLIC init) #}
-{% set DST_TL      = "CR9"  %}  {# stream TL output base #}
-{% set DST_TR      = "CR10" %}  {# stream TR output base #}
-{% set DST_BL      = "CR11" %}  {# stream BL output base #}
-{% set DST_BR      = "CR12" %}  {# stream BR output base #}
-{% set STRIPE1_TG0 = "CR13" %}  {# x + 1*144 rows (stripe 1) #}
+{% set DST_Y       = "CR9"  %}  {# y: every stream and token group #}
 {% set DSTRUCT     = "CR15" %}  {# reserved dstructure register #}
 
 {% set groups = [
-     ("TL", "on",     "on",     "tg0", DST_TL, STRIPE0_TG0, STRIPE1_TG0, STRIPE2_TG0, STRIPE3_TG0),
-     ("TL", "on",     "on",     "tg1", DST_TL, STRIPE0_TG1, STRIPE1_TG1, STRIPE2_TG1, STRIPE3_TG1),
-     ("TR", "on_inv", "on",     "tg0", DST_TR, STRIPE0_TG0, STRIPE1_TG0, STRIPE2_TG0, STRIPE3_TG0),
-     ("TR", "on_inv", "on",     "tg1", DST_TR, STRIPE0_TG1, STRIPE1_TG1, STRIPE2_TG1, STRIPE3_TG1),
-     ("BL", "on",     "on_inv", "tg0", DST_BL, STRIPE0_TG0, STRIPE1_TG0, STRIPE2_TG0, STRIPE3_TG0),
-     ("BL", "on",     "on_inv", "tg1", DST_BL, STRIPE0_TG1, STRIPE1_TG1, STRIPE2_TG1, STRIPE3_TG1),
-     ("BR", "on_inv", "on_inv", "tg0", DST_BR, STRIPE0_TG0, STRIPE1_TG0, STRIPE2_TG0, STRIPE3_TG0),
-     ("BR", "on_inv", "on_inv", "tg1", DST_BR, STRIPE0_TG1, STRIPE1_TG1, STRIPE2_TG1, STRIPE3_TG1)
+     ("TL", "on",     "on",     "tg0"),
+     ("TL", "on",     "on",     "tg1"),
+     ("TR", "on_inv", "on",     "tg0"),
+     ("TR", "on_inv", "on",     "tg1"),
+     ("BL", "on",     "on_inv", "tg0"),
+     ("BL", "on",     "on_inv", "tg1"),
+     ("BR", "on_inv", "on_inv", "tg0"),
+     ("BR", "on_inv", "on_inv", "tg1")
    ] %}
 {% set slots = [acc_slot0, acc_slot1, acc_slot2, acc_slot3] %}
 
@@ -153,10 +147,9 @@ ch_loop:
     # -- Stream {{ g[0] }}  ({{ g[3] }}: h={{ g[1] }}, v={{ g[2] }}) --
 {%- set gi = loop.index0 %}
 {%- for s in range(4) %}
-{#- The row to PREFETCH is the next entry in the flat 32-load sequence. #}
+{#- The row to PREFETCH is the next entry in the flat 32-load sequence: stripe nk of x. #}
 {%- set ni = (gi * 4 + s + 1) % 32 %}
-{%- set ng = groups[ni // 4] %}
-{%- set nstripe = ng[5 + (ni % 4)] %}
+{%- set nk = ni % 8 %}
 {%- if ni == 0 %}
     # Last load of the channel wraps to stripe 0 of the NEXT channel, so
     # src_off must advance in the word BEFORE it (LR slots precede LOAD).
@@ -167,11 +160,23 @@ ch_loop:
 {%- elif gi == 0 and s == 1 %}
     ADD                 {{ acc_slot3 }} {{ acc_slot2 }} {{ ONE }};         # slot 3 = 3
 {%- endif %}
-    LD.MULT R0 {{ src_off }} {{ nstripe }};
+{%- if nk == 0 %}
+    LD.MULT R0 {{ src_off }} {{ STRIPE0_TG0 }};
+{%- else %}
+    ADD                 {{ stripe_off }} {{ src_off if nk == 1 else stripe_off }} {{ ch_limit }};
+    LD.MULT R0 {{ stripe_off }} {{ STRIPE0_TG0 }};
+{%- endif %}
     MULT.RC.VV {{ acc_slot0 }} R0 0 {{ acc_slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.STRIDE 32 {{ g[1] }} {{ g[2] }} {{ slots[s] }};;
 {%- endfor %}
-    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ g[4] }} {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }};; # {{ g[0] }} {{ g[3] }}
+{%- set tg_off = dst_off_tg0 if g[3] == "tg0" else dst_off_tg1 %}
+{%- set stream_off = stream_tg0 if g[3] == "tg0" else stream_tg1 %}
+{%- if g[0] == "TL" %}
+    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ DST_Y }} {{ tg_off }};; # {{ g[0] }} {{ g[3] }}
+{%- else %}
+    ADD                 {{ stream_off }} {{ tg_off if g[0] == "TR" else stream_off }} {{ PHASE_ROWS }};
+    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ DST_Y }} {{ stream_off }};; # {{ g[0] }} {{ g[3] }}
+{%- endif %}
 {% endfor %}
     ADD                 {{ dst_off_tg0 }} {{ dst_off_tg0 }} {{ dst_stride }};
     ADD {{ dst_off_tg1 }} {{ dst_off_tg1 }} {{ dst_stride }};;  # dst offsets: +2 rows per channel

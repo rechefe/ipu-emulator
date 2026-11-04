@@ -12,10 +12,7 @@ c = { type = "int", choices = [192], default = 192 }
 
 [derived]
 tg       = "1"                       # rows per channel of a phase (64 tokens)
-y1       = "base(y) + c * tg"         # the phases' bases: y is phase-major
-y2       = "base(y) + 2 * c * tg"
-y3       = "base(y) + 3 * c * tg"
-stripe1  = "base(x) + c"              # stripe s of x at base(x) + s * c
+phase_rows = "c * tg"                 # rows per stream: stream k is k * phase_rows on in y
 qf       = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 [inputs.x]                    # 2 stripe(s) of 8 spatial rows, one row per channel
@@ -36,17 +33,14 @@ after = "x"                   # between x and y, as the old map
 x        = "CR0"
 ones     = "CR8"
 y        = "CR9"
-y1       = "CR10"
-y2       = "CR11"
-y3       = "CR12"
-stripe1  = "CR13"
+phase_rows = "CR10"
 c        = "CR7"            # the channel loop's bound
 qf       = "CR14"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = { repetitions = 769, also_via = ["stripe1"] }
-y = { repetitions = 192, also_via = ["y1", "y2", "y3"] }
+x = { repetitions = 769 }
+y = { repetitions = 192 }
 ones = {}
 
 [golden]
