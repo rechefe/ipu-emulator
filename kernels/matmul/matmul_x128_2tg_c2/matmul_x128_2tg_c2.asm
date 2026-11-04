@@ -80,9 +80,9 @@
 {% set DATA_BASE     = "CR0" %}   {# base of D                                  #}
 {% set ZERO          = "CR0" %}   {# hardwired read-only 0                      #}
 {% set ONE           = "CR1" %}   {# hardwired read-only 1                      #}
-{% set W_BASE_HI     = "CR2" %}   {# WEIGHTS_BASE + 128 (W[j,128..143])         #}
+{% set w_hi_ptr      = "LR1" %}   {# row of W[j,128..143] in table a: w_ptr + 1 #}
+{% set y_tg1_ptr     = "LR2" %}   {# row of OUTPUT[j, tg=1] in table y: out_ptr + n #}
 {% set OUT_BASE_TG0  = "CR3" %}
-{% set OUT_BASE_TG1  = "CR4" %}
 {% set DATA_START_TG0 = "CR5" %}  {# -256 startup skew                          #}
 {% set DATA_START_TG1 = "CR6" %}  {# -128 startup skew                          #}
 {% set K_START_R0    = "CR7" %}   {# -1  → first live k = 0                     #}
@@ -129,7 +129,8 @@
 j_loop:
     SET {{ rc_slot0 }} {{ ZERO }};                     # R_CYCLIC slot 0
     LD.MULT R0 {{ w_ptr }} {{ W_BASE_LO }};;       # R0[0..127] = W[j, 0..127]
-    LD.MULT R1 {{ w_ptr }} {{ W_BASE_HI }};;       # R1[0..127] = W[j, 128..143] + zeros
+    ADD {{ w_hi_ptr }} {{ w_ptr }} {{ ONE }};
+    LD.MULT R1 {{ w_hi_ptr }} {{ W_BASE_LO }};;    # R1[0..127] = W[j, 128..143] + zeros
 
     # -- token group 0 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG0 }};;           # tg=0 startup offset: -256
@@ -219,7 +220,8 @@ k_loop2_tg1:
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT.S {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
-    ACTIVATE.EXACT {{ act }} {{ DSTRUCT }} {{ OUT_BASE_TG1 }} {{ out_ptr }};;  # store 512B → OUTPUT[j, tg=1]
+    ADD {{ y_tg1_ptr }} {{ out_ptr }} {{ cr.n }};
+    ACTIVATE.EXACT {{ act }} {{ DSTRUCT }} {{ OUT_BASE_TG0 }} {{ y_tg1_ptr }};;  # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
 
     ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }};

@@ -80,10 +80,9 @@
 {% set DATA_BASE      = "CR0"  %}  {# base of D #}
 {% set ZERO          = "CR0" %}   {# hardwired read-only 0                      #}
 {% set ONE            = "CR1"  %}  {# hardwired read-only 1 #}
-{% set W_BASE_CHUNK1  = "CR2"  %}  {# WEIGHTS_BASE + 128 (W[j,128..255]) #}
-{% set W_BASE_CHUNK2  = "CR3"  %}  {# WEIGHTS_BASE + 256 (W[j,256..287]) #}
+{% set w_chunk_ptr   = "LR1"  %}  {# row of the chunk W[j,128..] in table a: w_ptr + 1, + 2 #}
+{% set y_tg1_ptr     = "LR2"  %}  {# row of OUTPUT[j, tg=1] in table y: out_ptr + n #}
 {% set OUT_BASE_TG0   = "CR4"  %}  {# OUTPUT_BASE #}
-{% set OUT_BASE_TG1   = "CR5"  %}  {# OUTPUT_BASE + N_OUT*512 #}
 {% set DATA_START_TG0 = "CR6"  %}  {# -256 startup skew #}
 {% set DATA_START_TG1 = "CR7"  %}  {# -128 startup skew #}
 {% set K_START        = "CR8"  %}  {# -1 -> first live k = 0 (per chunk) #}
@@ -130,7 +129,8 @@ k_chunk0_tg0:
 after_chunk0_tg0:
 
     SET {{ k_index }} {{ K_START }};
-    LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;  # chunk1 startup; R0 = W[j, 128..255]
+    ADD {{ w_chunk_ptr }} {{ w_ptr }} {{ ONE }};
+    LD.MULT R0 {{ w_chunk_ptr }} {{ W_BASE_CHUNK0 }};;  # chunk1 startup; R0 = W[j, 128..255]
 
 k_chunk1_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
@@ -141,7 +141,8 @@ k_chunk1_tg0:
     BLT.S {{ k_index }} {{ k_bound }} k_chunk1_tg0;;
 
     SET {{ k_index }} {{ K_START }};
-    LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;  # chunk2 startup; R0 = W[j, 256..287]+zeros
+    ADD {{ w_chunk_ptr }} {{ w_chunk_ptr }} {{ ONE }};
+    LD.MULT R0 {{ w_chunk_ptr }} {{ W_BASE_CHUNK0 }};;  # chunk2 startup; R0 = W[j, 256..287]+zeros
 
 k_chunk2_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
@@ -189,7 +190,8 @@ k_chunk0_tg1:
 after_chunk0_tg1:
 
     SET {{ k_index }} {{ K_START }};
-    LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;
+    ADD {{ w_chunk_ptr }} {{ w_ptr }} {{ ONE }};
+    LD.MULT R0 {{ w_chunk_ptr }} {{ W_BASE_CHUNK0 }};;
 
 k_chunk1_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
@@ -200,7 +202,8 @@ k_chunk1_tg1:
     BLT.S {{ k_index }} {{ k_bound }} k_chunk1_tg1;;
 
     SET {{ k_index }} {{ K_START }};
-    LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;
+    ADD {{ w_chunk_ptr }} {{ w_chunk_ptr }} {{ ONE }};
+    LD.MULT R0 {{ w_chunk_ptr }} {{ W_BASE_CHUNK0 }};;
 
 k_chunk2_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
@@ -213,7 +216,8 @@ k_chunk2_tg1:
     # Store (ADR 0007): ACTIVATE.EXACT activates R_ACC's active lanes and
     # stores the row as 128 FP32 values in the same word; the DS half
     # (ds(128), every lane) makes `identity` a lane-for-lane copy of r_acc.
-    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE_TG1 }} {{ out_ptr }};;  # store 512B → OUTPUT[j, tg=1]
+    ADD {{ y_tg1_ptr }} {{ out_ptr }} {{ j_limit }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE_TG0 }} {{ y_tg1_ptr }};;  # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr
 
     ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }};

@@ -56,9 +56,10 @@
       ahead. chunk1's startup is NOT biased -- chunk0's trailing prefetch already
       supplied that step of phase.
 
-    CRs: CR0=DATA_BASE, CR9=WEIGHTS_BASE, CR2=WB+128, CR5=OUTPUT_BASE, CR6=-128 (data startup), CR8=-1 (chunk startup)
+    CRs: CR0=DATA_BASE, CR9=WEIGHTS_BASE (every chunk: LR1 = the chunk's row), CR5=OUTPUT_BASE, CR6=-128 (data startup), CR8=-1 (chunk startup)
     LRs: the program sets LR0 (0), LR7 (out ptr), LR8 (weight offset) and LR9 (j) to 0 in the
-         word before j_loop (LR0 in j_loop's first word) and LR4, LR5 itself. The constants the
+         word before j_loop (LR0 in j_loop's first word) and LR4, LR5 itself, and LR1 (W[j]'s
+         chunk row: LR8 + chunk, the offset of the chunk in table a) before each chunk load. The constants the
          loops read are CRs (kernel.toml's [abi]): CR11 = data stride, CR12 = W_STRIDE, CR10 = j
          limit, CR13.L = width-128 bound (126), CR13.H = tail-chunk bound.
          LR3's output stride is the hardwired CR1 (1 row).
@@ -107,7 +108,8 @@ after_chunk0:
     # No re-prime: chunk1's first row is already in flight from chunk0's
     # trailing prefetch, and LR5 is NOT biased here for the same reason.
     SET LR5 CR8;
-    LD.MULT R0 LR8 CR2;;  # chunk1 startup; R0 = W[j, chunk1]
+    ADD LR1 LR8 CR1;
+    LD.MULT R0 LR1 CR9;;  # chunk1 startup; R0 = W[j, chunk1]
 
 k_chunk1:
     MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
