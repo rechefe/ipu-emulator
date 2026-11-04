@@ -378,18 +378,18 @@
   "mangled/blank-line-range": "f216e308c44f3dd5acff3eb334b2b4ba04443c32c835e048441c7a86be971139"
  },
  "kernels/elementwise/residual_add_rows/residual_add_rows.asm": {
-  "input": "c7495541c8c0015907c3f2062cb1e0143e9e1cbd58abb1b56af8b5c0e37e46d5",
-  "mangled": "424cc59f803d41f01634891b9dec60cf1093dafb692ad46f1259b527e0693569",
-  "default": "c7495541c8c0015907c3f2062cb1e0143e9e1cbd58abb1b56af8b5c0e37e46d5",
-  "mangled/default": "c7495541c8c0015907c3f2062cb1e0143e9e1cbd58abb1b56af8b5c0e37e46d5",
-  "blank-line": "bac3e1028cb760108a6e36bbd48816b29ea85f7847ebde85ddd3a58686131656",
-  "mangled/blank-line": "bac3e1028cb760108a6e36bbd48816b29ea85f7847ebde85ddd3a58686131656",
-  "indent-tab": "ec165a3b6aa164da1d943fbdd501d2bac06e71e2f2f0dd22f35dec39af8d42f9",
-  "mangled/indent-tab": "ec165a3b6aa164da1d943fbdd501d2bac06e71e2f2f0dd22f35dec39af8d42f9",
-  "indent-2-range": "c7495541c8c0015907c3f2062cb1e0143e9e1cbd58abb1b56af8b5c0e37e46d5",
-  "mangled/indent-2-range": "424cc59f803d41f01634891b9dec60cf1093dafb692ad46f1259b527e0693569",
-  "blank-line-range": "c7495541c8c0015907c3f2062cb1e0143e9e1cbd58abb1b56af8b5c0e37e46d5",
-  "mangled/blank-line-range": "424cc59f803d41f01634891b9dec60cf1093dafb692ad46f1259b527e0693569"
+  "input": "4a70f86e468b11158abbf15a9b9dd1bcfb53d318e0bb3cd1acc7b5158f343d0c",
+  "mangled": "e8d1ac6b3c6fb2c50a4a1530b4d2d4e1ffb7368bce953b12c0ebf27b490917b0",
+  "default": "4a70f86e468b11158abbf15a9b9dd1bcfb53d318e0bb3cd1acc7b5158f343d0c",
+  "mangled/default": "4a70f86e468b11158abbf15a9b9dd1bcfb53d318e0bb3cd1acc7b5158f343d0c",
+  "blank-line": "688ee26b1574a8d59e124a3cbb97e4a2d2d91d45d913b487ad84f6dd92129db8",
+  "mangled/blank-line": "688ee26b1574a8d59e124a3cbb97e4a2d2d91d45d913b487ad84f6dd92129db8",
+  "indent-tab": "6353952eee45a757f2618f26d33249e0d52c0d12942a563b1112ce703d08a766",
+  "mangled/indent-tab": "6353952eee45a757f2618f26d33249e0d52c0d12942a563b1112ce703d08a766",
+  "indent-2-range": "4a70f86e468b11158abbf15a9b9dd1bcfb53d318e0bb3cd1acc7b5158f343d0c",
+  "mangled/indent-2-range": "e8d1ac6b3c6fb2c50a4a1530b4d2d4e1ffb7368bce953b12c0ebf27b490917b0",
+  "blank-line-range": "4a70f86e468b11158abbf15a9b9dd1bcfb53d318e0bb3cd1acc7b5158f343d0c",
+  "mangled/blank-line-range": "e8d1ac6b3c6fb2c50a4a1530b4d2d4e1ffb7368bce953b12c0ebf27b490917b0"
  },
  "kernels/elementwise/scale/scale.asm": {
   "input": "79257aafc5b77a2919e011b098f980bfa6b200344e2e6ffcfe9aeeb26c194905",

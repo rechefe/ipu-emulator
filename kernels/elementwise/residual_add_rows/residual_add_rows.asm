@@ -25,9 +25,8 @@
           add is partition-local, so packing changes only the row count.
       kernel.toml declares each tensor as [channels / per_row, per_row * tokens]
       with the default row-major pack, which gives all three layouts.
-    - Regions follow each other: a at row 0, b at row `rows`, y at 2 * `rows`.
-      The program reads a's base through CR0 (hardwired 0), so a is pinned at
-      row 0 and [abi] binds it to CR0.
+    - Regions follow each other: a, then b `rows` rows on, then y. Each is its
+      own table: a's CR, b's CR and y's CR each hold a table ID.
     - There is no add in the vector path: each addend passes through the
       multiplier against the scalar 1.0 (DTYPE_ONE, a CR; Q49 decodes it in the
       active format) and the accumulator sums them.
@@ -71,7 +70,7 @@
 {% set row_stride = "LR7"  %}  {# 1 = row stride for A and B #}
 {% set out_stride = "LR8"  %}  {# 1 = output row stride #}
 
-{% set A_BASE     = cr.a          %}  {# CR0: base row of a, hardwired 0 (a is pinned at row 0) #}
+{% set A_BASE     = cr.a          %}  {# CR2: a's table ID #}
 {% set ONE        = "CR1"  %}  {# hardwired read-only 1 #}
 {% set OUT_BASE   = cr.y          %}  {# CR3: base row of y #}
 {% set ZERO       = cr.zero       %}  {# CR4: const 0 #}
