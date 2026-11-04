@@ -14,7 +14,6 @@ temperature = { type = "float", min = 1.401298464324817e-45, default = 1.0 }  # 
 [derived]
 rows      = "ceil(count / 128)"
 slot1     = "128"                                      # R_CYCLIC slot 1, where tau lives
-count_row = "base(y) + rows"                           # partial sums, then the total in lane 0
 qf        = "case_qf"                                  # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, staged, tau, ttau, tvec, y (the old image).
@@ -49,7 +48,6 @@ after = "ttau"
 x         = "CR2"
 y         = "CR3"
 staged    = "CR4"
-count_row = "CR5"
 tau       = "CR6"
 ttau      = "CR7"
 tvec      = "CR8"
@@ -60,7 +58,7 @@ qf        = "CR14"
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
 x = {}
-y = { also_via = ["count_row"] }
+y = {}
 staged = { repetitions = "ceil(rows / 2)" }
 tau = {}
 ttau = {}

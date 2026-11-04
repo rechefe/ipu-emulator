@@ -90,7 +90,7 @@
 {% set K_BASE      = "CR0"  %}  {# channel-major K base #}
 {% set ONE         = "CR1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE_G0   = cr.y  %}  {# S base, key group 0 #}
-{% set S_BASE_G1   = cr.y_g1  %}  {# S base + 1 row, key group 1 #}
+{% set s_g1_ptr    = "LR1"  %}  {# row of S[i, keys 128..255] in table y: out_ptr + 1 #}
 {% set K_START_G0  = cr.k_start_g0  %}  {# -2 rows startup skew (first live = row 0) #}
 {% set K_START_G1  = cr.k_start_g1  %}  {# -1 row startup skew (first live = row 1) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
@@ -167,7 +167,8 @@ c_loop_g1:
     BLT.S {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
-    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE_G1 }} {{ out_ptr }} ;;  # store a row → S[i, keys 128..255]
+    ADD {{ s_g1_ptr }} {{ out_ptr }} {{ ONE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE_G0 }} {{ s_g1_ptr }} ;;  # store a row → S[i, keys 128..255]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr (+2 rows)
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }};

@@ -11,7 +11,6 @@ d = { type = "int", choices = [36] }   # fixed: the kernel takes exactly its lay
 seed = { type = "int", default = 0x9C0 }   # the old RandomState seed (0x9C0); generator only
 
 [derived]
-y_g1 = "base(y) + 1"     # CR4: key group 1's first output row
 k_start_g0 = "-2"        # CR5: -K_STRIDE_ROWS
 k_start_g1 = "-1"        # CR6: -K_STRIDE_ROWS + 1
 chan_start = "-1"        # CR7
@@ -37,7 +36,6 @@ shape = ["n_tok", "n_tok"]
 b = "CR0"        # read through the hardwired 0: b is pinned at row 0
 a = "CR9"        # QROW_BASE
 y = "CR3"        # S_BASE_G0
-y_g1 = "CR4"
 k_start_g0 = "CR5"
 k_start_g1 = "CR6"
 chan_start = "CR7"
@@ -51,7 +49,7 @@ qf = "CR14"
 [tables]
 b = { repetitions = 512, overhead_rows = 2 }
 a = {}
-y = { also_via = ["y_g1"] }
+y = {}
 
 [golden]
 op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)

@@ -36,8 +36,8 @@
 
     ABI (kernel.toml [abi]; CR0/CR1 are READ-ONLY hardware constants):
       CR0  = 0                        CR1  = 1  (-> 1.0 scalar; every +1)
-      CR2  = INPUT_BASE      (rows)   CR3  = CONFIDENCE_BASE (rows: y[0])
-      CR4  = KEEP_BASE       (rows: y[1])   CR5  = TAU_ROW   (rows)
+      CR2  = INPUT_BASE      (rows)   CR3  = Y_BASE (rows: y[0], then y[1] TILES rows on)
+      CR5  = TAU_ROW   (rows)
       CR6  = TILES -- rows per channel plane, AND the tile-loop bound
       CR7  = CHANNELS
       CR10 = 128 (R_CYCLIC slot-1 index, where tau lives)
@@ -55,6 +55,7 @@
 {%- set lr_c    = "LR2" -%}  {#- channel counter -#}
 {%- set lr_addr = "LR3" -%}  {#- walking input row address -#}
 {%- set lr_tau  = "LR4" -%}  {#- 128: R_CYCLIC slot-1 index, the resident tau -#}
+{%- set lr_keep = "LR5" -%}  {#- the tile's row in y[1]: t + TILES -#}
 
     SET {{lr_zero}} CR0 ;
     SET {{lr_t}}    CR0 ;
@@ -80,7 +81,8 @@ chan_loop:
 peak_done:
     ACTIVATE.EXACT identity CR15.L CR3 {{lr_t}} ;; {#- CONF[t] = max over planes -#}
     MULT.RC.VE {{lr_tau}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.SUB ;
-    ACTIVATE.EXACT relu CR15.L CR4 {{lr_t}} ;; {#- KEEP[t] = relu(conf - tau) -#}
+    ADD {{lr_keep}} {{lr_t}} CR6 ;
+    ACTIVATE.EXACT relu CR15.L CR3 {{lr_keep}} ;; {#- KEEP[t] = relu(conf - tau) -#}
     ADD {{lr_t}} {{lr_t}} CR1 ;;
     BLT.S {{lr_t}} CR6 tile_loop ;;
 

@@ -42,9 +42,8 @@
 
     ABI (kernel.toml [abi]; CR0/CR1 are READ-ONLY hardware constants):
       CR0  = 0 (-> the 0.0 scalar that clears R_ACC)   CR1 = 1
-      CR2  = SCORES_BASE   (rows)     CR3  = SELECTED_BASE (rows: y[:count])
+      CR2  = SCORES_BASE   (rows)     CR3  = Y_BASE (rows: y[:count], then y[count])
       CR4  = STAGED_BASE   (rows)     -- the sigmoid plane
-      CR5  = COUNT_ROW     (rows)     -- partial sums, then the total: y[count]
       CR6  = TAU_ROW       (rows)     CR7  = TTAU_ROW (rows; holds T*tau)
       CR8  = TVEC_ROW      (rows)     -- 128 copies of T, loaded into R0
       CR9  = ROWS                     CR10 = 128
@@ -61,11 +60,13 @@
 {%- set lr_r    = "LR2" -%}  {#- row counter -#}
 {%- set lr_tau  = "LR3" -%}  {#- 128: R_CYCLIC slot-1 index, the resident tau -#}
 {%- set lr_ttau = "LR4" -%}  {#- 256: R_CYCLIC slot-2 index, the resident T*tau -#}
+{%- set lr_cnt  = "LR5" -%}  {#- ROWS: the count row's offset in y (y[count]) -#}
 
     SET {{lr_zero}} CR0 ;
     SET {{lr_addr}} CR0 ;
     SET {{lr_r}}    CR0 ;;
-    SET {{lr_tau}}  CR10 ;;                              {#- 128 -#}
+    SET {{lr_tau}}  CR10 ;                               {#- 128 -#}
+    SET {{lr_cnt}}  CR9 ;;
     ADD {{lr_ttau}} {{lr_tau}} {{lr_tau}} ;;             {#- 256 -#}
     LD.MULT.CYCLIC {{lr_zero}} CR6 {{lr_tau}} ;;    {#- slot1 <- tau, resident -#}
     LD.MULT.CYCLIC {{lr_zero}} CR7 {{lr_ttau}} ;;   {#- slot2 <- T*tau, resident -#}
@@ -97,11 +98,11 @@ pass2_loop:
     BLT.S {{lr_r}} CR9 pass2_loop ;;
 
 {#- ---- DRAIN: collapse the 128 partials to one scalar -------------------- -#}
-    ACTIVATE.EXACT identity CR15.L CR5 {{lr_zero}} ;; {#- stage the partial vector -#}
-    LD.MULT.CYCLIC {{lr_zero}} CR5 {{lr_zero}} ;;
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_cnt}} ;; {#- stage the partial vector -#}
+    LD.MULT.CYCLIC {{lr_cnt}} CR3 {{lr_zero}} ;;
     NOP ;;                                               {#- slot0 visible NEXT word -#}
     MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; AGG.SUM.FIRST {{lr_zero}} CR15.L ;;
-    ACTIVATE.EXACT identity CR15.L CR5 {{lr_zero}} ;; {#- COUNT[0] = the soft survivor count -#}
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_cnt}} ;; {#- COUNT[0] = the soft survivor count -#}
 
 end:
     HALT ;;

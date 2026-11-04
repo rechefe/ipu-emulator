@@ -14,7 +14,6 @@ threshold = { type = "float", default = 0.0 }          # tau, a resident row
 [derived]
 tiles  = "ceil(columns / 128)"                         # rows per channel plane
 slot1  = "128"                                         # R_CYCLIC slot 1, where tau lives
-keep   = "base(y) + tiles"                             # y[1]'s first row
 qf     = "case_qf"                                     # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, tau, y (the old image: logits, tau row, output).
@@ -32,7 +31,6 @@ after = "x"
 [abi]
 x        = "CR2"
 y        = "CR3"
-keep     = "CR4"
 tau      = "CR5"
 tiles    = "CR6"
 channels = "CR7"
@@ -44,7 +42,7 @@ qf       = "CR14"
 # x is read channel by channel for each tile: the walk to the next tile steps back
 # (channels - 1) * tiles - 1 rows, which stays within jump_back (one repetition).
 x = { jump_back = "min(1, tiles - 1) * max(0, (channels - 1) * tiles - 1)" }
-y = { jump_back = "tiles - 1", also_via = ["keep"] }
+y = { jump_back = "tiles - 1" }
 tau = {}
 
 [golden]

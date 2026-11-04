@@ -17,7 +17,6 @@ one = { type = "float", choices = [1.0], default = 1.0 }   # the pass-through mu
 [derived]
 ptr_start  = "-1"                          # the source pointer starts a row before the base
 row_stride = "1"
-y_b        = "base(y) + c_a"               # where b's rows go: y's second part
 qf         = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 # Placed in this order from row 0: a, b, y (the old memory map).
@@ -37,7 +36,6 @@ one        = "CR4"
 a          = "CR5"
 b          = "CR6"
 y          = "CR7"
-y_b        = "CR8"
 c_a        = "CR9"
 c_b        = "CR10"
 qf         = "CR14"
@@ -46,7 +44,7 @@ qf         = "CR14"
 [tables]
 a = { overhead_rows = 1 }
 b = { overhead_rows = 1 }
-y = { also_via = ["y_b"] }
+y = {}
 
 [golden]
 op = "concat"
