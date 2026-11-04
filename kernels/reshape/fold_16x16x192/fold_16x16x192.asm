@@ -99,9 +99,9 @@
       CR2, CR3     source table [0,1,2,3] / [4,5,6,7]
       CR4, CR5     TL's destination table [0,2,4,6] / [8,10,12,14]
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
-      CR9..CR12    streams TL, TR, BL, BR of x
-      CR14         y's stripe 0
-      CR13         y's stripe 1
+      CR9          x (stream TL; the other streams are LR7 = LR6 + k * CR10 rows on)
+      CR10         c * tg: rows per stream of x
+      CR14         y (stripe 1 is LR9 = LR8 + CR6 rows on)
       CR6          the channel loop's bound (192)
     LR0 (R_CYCLIC slot 0), LR6 (source row offset within a stream), LR8
     (destination row offset) and LR10 (channel counter) are set by the program's first words (the row strides are the hardwired CR1) (hardwired 1) is the channel loop's increment.
@@ -149,7 +149,8 @@ ch_loop:
     SET                 LR3 CR3;;           # source table <- [0,1,2,3,4,5,6,7]
     SET                 LR4 CR4;
     SET                 LR5 CR5;;           # dest table   <- TL base
-    LD.MULT R0 LR6 CR10;
+    ADD                 LR7 LR6 CR10;
+    LD.MULT R0 LR7 CR9;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply TL row (prefetch TR next)
     ACC.RESHAPE LRD2 LRD4 0;;               # call0: src[0..7]   -> dest[0,2,..,14]
     ADDBI               LRD2 8;
@@ -172,7 +173,8 @@ ch_loop:
     SET                 LR4 CR4;
     SET                 LR5 CR5;;           # dest table <- TL base
     ADDBI               LRD4 1;;            # dest table <- TR base
-    LD.MULT R0 LR6 CR11;
+    ADD                 LR7 LR7 CR10;
+    LD.MULT R0 LR7 CR9;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply TR row (prefetch BL next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
@@ -191,7 +193,8 @@ ch_loop:
     SET                 LR4 CR4;
     SET                 LR5 CR5;;           # dest table <- TL base
     ADDBI               LRD4 16;;           # dest table <- BL base
-    LD.MULT R0 LR6 CR12;
+    ADD                 LR7 LR7 CR10;
+    LD.MULT R0 LR7 CR9;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply BL row (prefetch BR next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
@@ -237,7 +240,8 @@ ch_loop:
     SET                 LR4 CR4;
     SET                 LR5 CR5;;           # dest table <- TL base
     ADDBI               LRD2 32;;           # source table <- [32..39] (stripe-1 window)
-    LD.MULT R0 LR6 CR10;
+    ADD                 LR7 LR6 CR10;
+    LD.MULT R0 LR7 CR9;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply TL row (prefetch TR next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
@@ -257,7 +261,8 @@ ch_loop:
     SET                 LR5 CR5;
     ADDBI               LRD2 32;;           # source table <- [32..39]; dest table <- TL base
     ADDBI               LRD4 1;;            # dest table <- TR base
-    LD.MULT R0 LR6 CR11;
+    ADD                 LR7 LR7 CR10;
+    LD.MULT R0 LR7 CR9;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply TR row (prefetch BL next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
@@ -277,7 +282,8 @@ ch_loop:
     SET                 LR5 CR5;
     ADDBI               LRD2 32;;           # source table <- [32..39]; dest table <- TL base
     ADDBI               LRD4 16;;           # dest table <- BL base
-    LD.MULT R0 LR6 CR12;
+    ADD                 LR7 LR7 CR10;
+    LD.MULT R0 LR7 CR9;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply BL row (prefetch BR next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
@@ -317,7 +323,8 @@ ch_loop:
     ADDBI               LRD4 32;;
     ACC.RESHAPE LRD2 LRD4 0;;
 
-    ACTIVATE.EXACT identity CR15.L CR13 LR8;; # stripe 1 <- DST_BASE + 192 + ch
+    ADD                 LR9 LR8 CR6;        # stripe 1 is c rows on in y
+    ACTIVATE.EXACT identity CR15.L CR14 LR9;; # stripe 1 <- DST_BASE + 192 + ch
 
     # -- Advance pointers; loop -------------------------------------------------
     ADD                 LR8 LR8 CR1;;       # dst offset: next channel (+1 row)

@@ -87,7 +87,8 @@
       CR2, CR3     source table [0,1,2,3] / [4,5,6,7]
       CR4, CR5     stream 0's destination table [0,2,4,6] / [16,18,20,22]
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
-      CR9..CR12    streams 0..3 of x
+      CR9          x (stream 0; the other streams are LR7 = LR6 + k * CR10 rows on)
+      CR10         c * tg: rows per stream of x
       CR13         y
       CR6          the channel loop's bound (240)
     LR0 (R_CYCLIC slot 0), LR6 (source row offset), LR8 (destination row
@@ -118,10 +119,10 @@
 ========================================================================== -#}
 
 {% set groups = [
-     ("s0", 0, "CR9",  "CR10"),
-     ("s1", 1, "CR10", "CR11"),
-     ("s2", 8, "CR11", "CR12"),
-     ("s3", 9, "CR12", "CR9"),
+     ("s0", 0),
+     ("s1", 1),
+     ("s2", 8),
+     ("s3", 9),
    ] %}
 
     SET                 LR0 CR0;                # R_CYCLIC slot 0, source and destination row offsets
@@ -141,7 +142,6 @@ ch_loop:
 {% for g in groups %}
 {%- set name = g[0] %}
 {%- set dest_base = g[1] %}
-{%- set next_cr = g[3] %}
     # -- Stream {{ name }}: dest table = base{% if dest_base != 0 %} + {{ dest_base }}{% endif %} -----------------------------------
     SET                 LR2 CR2;
     SET                 LR3 CR3;;           # source table <- [0,1,2,3,4,5,6,7]
@@ -157,7 +157,12 @@ ch_loop:
     # this ADD gets its own word.
     ADD                 LR6 LR6 CR1;;       # src offset: next channel (+1 row)
 {%- endif %}
-    LD.MULT R0 LR6 {{ next_cr }};
+{%- if loop.index0 == 3 %}
+    LD.MULT R0 LR6 CR9;
+{%- else %}
+    ADD                 LR7 {{ "LR6" if loop.index0 == 0 else "LR7" }} {{ cr.phase_rows }};
+    LD.MULT R0 LR7 CR9;
+{%- endif %}
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;;          # multiply {{ name }} row (prefetch next stream)
     ACC.RESHAPE LRD2 LRD4 0;;               # call0: src[0..7] -> dest[{{ dest_base }},{{ dest_base+2 }},{{ dest_base+4 }},{{ dest_base+6 }},{{ dest_base+16 }},{{ dest_base+18 }},{{ dest_base+20 }},{{ dest_base+22 }}]
     ADDBI               LRD2 8;

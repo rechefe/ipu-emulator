@@ -11,10 +11,7 @@ c = { type = "int", choices = [192], default = 192 }
 
 [derived]
 tg         = "1"                      # rows per channel of a phase (64 tokens)
-x1         = "base(x) + c * tg"        # the phases' bases: x is phase-major
-x2         = "base(x) + 2 * c * tg"
-x3         = "base(x) + 3 * c * tg"
-y_s1     = "base(y) + c"              # stripe 1 of y
+phase_rows = "c * tg"                  # rows per stream: stream k is k * phase_rows on in x
 # ACC.RESHAPE index tables, four little-endian bytes per CR (lane indices,
 # not byte addresses: no unit = "bytes", L16).
 src_lo     = "50462976"                # [0, 1, 2, 3]
@@ -43,18 +40,15 @@ dst_lo     = "CR4"
 dst_hi     = "CR5"
 ones       = "CR8"
 x          = "CR9"
-x1         = "CR10"
-x2         = "CR11"
-x3         = "CR12"
+phase_rows = "CR10"
 y          = "CR14"
-y_s1       = "CR13"
 c          = "CR6"                     # the channel loop's bound
 ds_qf      = "CR15"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = { repetitions = 385, also_via = ["x1", "x2", "x3"] }
-y = { repetitions = 192, also_via = ["y_s1"] }
+x = { repetitions = 385 }
+y = { repetitions = 192 }
 ones = {}
 
 [golden]
