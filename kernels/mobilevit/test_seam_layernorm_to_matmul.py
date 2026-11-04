@@ -4,11 +4,10 @@ L5 (E07-24, from ``test_seam_layernorm_matmul_xmem_direct{,_l3,_l5}.py``).
 ``layernorm_*`` stores ``y`` as ``x`` is laid out: one row per (channel,
 token group), the first ``n_tok`` lanes valid. ``matmul_*_x128`` reads its
 data ``b`` (pack ``channel_major``) as one row per (channel, token group),
-in the same order. Both programs read their input through CR0, so each input
-is pinned at row 0 and LayerNorm's output cannot sit where the matmul reads:
-the host copies the stored rows to row 0 verbatim (padding lanes included,
-no repack), and the matmul reads them there. That copy is the seam under
-test, as the old tests' byte copy was:
+in the same order. The matmul reads them where LayerNorm stored them: the
+host only relabels the stored rows in place as the matmul's pack
+(``channel_major``), padding lanes included, no repack. That relabel is the
+seam under test, as the old tests' byte copy was:
 
 * through the real kernels the matmul gives the shared references chained in
   float64 (``ops.layernorm``, then ``ops.linear``), each step held to its own
@@ -94,7 +93,7 @@ def _want(seam: Seam, x, gamma, beta, w) -> np.ndarray:
 
 
 def _run(seam: Seam, seed: int, *, mutate: bool = False) -> tuple[np.ndarray, np.ndarray]:
-    """The chain: LayerNorm, the verbatim copy to row 0, the matmul. Returns
+    """The chain: LayerNorm, the in-place relabel, the matmul. Returns
     the matmul's output ``[groups, n_out, group_tokens]`` and the reference."""
     x, gamma, beta, w = _inputs(seam, seed)
     chain = Chain(FP32)
@@ -103,7 +102,7 @@ def _run(seam: Seam, seed: int, *, mutate: bool = False) -> tuple[np.ndarray, np
     rows = chain.read(normed.resident["y"])  # (channel, group) rows, as stored
     if mutate:
         rows[seam.mutated_row] = 999.0
-    data = chain.write(rows, at=0, pack="channel_major")
+    data = chain.write(rows, at=normed.resident["y"].base_row, pack="channel_major")
     out = chain.write(np.full((seam.groups * seam.n_out, LANES), POISON))
     # The matmul's golden would follow the mutated data; only the chained reference fails.
     step = chain.run(seam.matmul, {}, {"b": data, "a": w}, check=not mutate, at={"y": out})

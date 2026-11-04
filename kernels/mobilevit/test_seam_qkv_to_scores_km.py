@@ -88,12 +88,7 @@ def _scores(chain: Chain, name: str, params: dict, q: np.ndarray, k: np.ndarray)
     first ``n_tok`` lanes ``[.., n_tok (key), n_tok (query)]``."""
     n_tok = params["n_tok"]
     rows = int(np.prod(q.shape[:-2])) * n_tok
-    # attn_scores_km_16x60 reads b through CR0, so b is pinned at row 0. The
-    # guard is placed first fit, so it takes row 0 while it is free, and keeps
-    # the poisoned output off b's rows.
-    guard = chain.reserve(int(np.prod(q.shape[:-1])))
     out = chain.write(np.full((rows, LANES), POISON), pack="padded")
-    chain.release(guard)
     a = key_major(k)
     step = chain.run(name, params, {"b": q, "a": a}, at={"y": out})
     assert step.result.passed, step.result.describe()  # halted, no fault

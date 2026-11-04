@@ -2,10 +2,10 @@
 L5), and LayerNorm into the QKV matmul with a chained producer's data in its
 padding lanes (L4) (E07-24, from ``test_seam_pipeline_boundaries.py``).
 
-Every program here reads its first input through CR0, so each input is
-pinned at row 0 and a producer's output cannot sit where the consumer reads:
-the host copies the stored rows to row 0 verbatim (every lane, no repack),
-and the consumer reads them there. The old tests fed one harness's output
+A producer's stored rows go to the consumer where they are, every lane, no
+repack: OutProj's output is the residual add's ``a`` as it stands, and
+LayerNorm's output is relabelled in place as the QKV matmul's ``channel_major``
+data. The old tests fed one harness's output
 file to the next harness, and found two defects at that boundary: an L5
 OutProj that cropped its rows (fixed since), and a LayerNorm whose full rows
 the QKV matmul's file loader misread as tightly packed. Neither has a file
@@ -61,7 +61,7 @@ def test_outproj_rows_feed_the_residual_add_verbatim(seam):
     chain = Chain(FP32)
     projected = chain.run(matmul, {}, {"b": d[None], "a": w}, check=True)
     assert projected.result.passed, projected.result.describe()
-    a = chain.write(chain.read(projected.resident["y"]), at=0)
+    a = projected.resident["y"]
     b = np.zeros((channels, tokens), np.float32)
     out = _poisoned(chain, channels)
     step = chain.run(residual_add, {}, {"a": a, "b": b}, check=True, at={"y": out})
@@ -88,12 +88,13 @@ def test_layernorm_rows_feed_the_qkv_matmul_with_data_in_their_padding_lanes():
     chain = Chain(FP32)
     x_rows = np.full((channels, LANES), POISON)
     x_rows[:, :tokens] = x
-    staged = chain.write(x_rows, at=0)  # x is read through CR0: row 0, as declared
+    staged = chain.write(x_rows)
     normed = chain.run(
         "layernorm_64x192", {}, {"x": staged, "gamma": gamma, "beta": beta}, check=True
     )
     assert normed.result.passed, normed.result.describe()
-    data = chain.write(chain.read(normed.resident["y"]), at=0, pack="channel_major")
+    y = normed.resident["y"]
+    data = chain.write(chain.read(y), at=y.base_row, pack="channel_major")
     out = _poisoned(chain, n_out)
     step = chain.run("matmul_576x192_x128", {}, {"b": data, "a": w}, check=True, at={"y": out})
     assert step.result.passed, step.result.describe()

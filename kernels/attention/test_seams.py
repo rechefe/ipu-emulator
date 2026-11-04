@@ -31,9 +31,6 @@ import numpy as np
 import pytest
 
 from ipu_harness.chain import Chain, Resident
-from ipu_harness.packing import stored_rows
-from ipu_harness.params import plan_case
-from ipu_harness.registry import default_registry
 from ipu_isa.formats import ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_kernels.reference.datapath import acc_fold, agg_fold
@@ -114,17 +111,8 @@ def _producer_inputs(seam: Seam, q: np.ndarray, k: np.ndarray) -> dict[str, np.n
 
 
 def _p_rows(chain: Chain, seam: Seam) -> Resident:
-    """P, reserved and poisoned, above the rows the producer pins its ``b`` to.
-
-    ``qk_scores_16x60``, ``qk_scores_256x36`` and the ``attn_scores_km``
-    kernels of the same layers read ``b`` through CR0 (hardwired 0), so ``b``
-    is pinned at row 0; a guard of those rows keeps P off them.
-    """
-    manifest = default_registry().kernel(seam.scores)
-    plan = plan_case(manifest, {"n_tok": seam.n_tok, "d": seam.d}, FP32)
-    guard = chain.reserve(stored_rows(manifest.tensors["b"], plan))
+    """P, reserved and poisoned: the rows the score steps write into."""
     p = chain.reserve(seam.heads * seam.head_rows, pack="padded")
-    chain.release(guard)
     chain.write(np.full((p.rows, LANES), POISON), at=p)
     return p
 

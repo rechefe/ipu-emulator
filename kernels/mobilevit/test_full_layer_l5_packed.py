@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 from mobilevit_layer import FP32, STAGES, LayerRun, attention, reference, reference_tail, weights
-from mobilevit_packed import PACKED_L5, back, front, hold_at_row_0, pack, packed, run_layer
+from mobilevit_packed import PACKED_L5, back, front, hold_input, pack, packed, run_layer
 from mobilevit_packed import attention as packed_attention
 
 from ipu_harness.chain import Chain
@@ -49,7 +49,7 @@ def test_stage1_layernorm_qkv_unpack():
     x = rs.uniform(-1.0, 1.0, size=(C, N)).astype(np.float32)
     w = _weights(rs)
     run, chain = LayerRun(), Chain(FP32)
-    got, qkv = front(run, chain, CFG, hold_at_row_0(chain, x), w)
+    got, qkv = front(run, chain, CFG, hold_input(chain, x), w)
     _held(got, reference(x, w, heads=HEADS), run)
     for j, third in enumerate(qkv):
         np.testing.assert_array_equal(third, got["qkv"][j * C : (j + 1) * C])
@@ -69,7 +69,7 @@ def test_stage2_attention():
 
 
 def test_stage3_outproj_residual_ffn_residual():
-    """OutProj -> residual add (with the residual input at row 0) ->
+    """OutProj -> residual add (with the residual input held) ->
     LayerNorm -> FFN1 (SiLU) -> FFN2 -> residual add."""
     rs = np.random.RandomState(302)
 
@@ -85,7 +85,7 @@ def test_stage3_outproj_residual_ffn_residual():
         "w_ffn2": u(-0.05, 0.05, C, 4 * C),
     }  # the old draw order
     run, chain = LayerRun(), Chain(FP32)
-    x0 = hold_at_row_0(chain, residual_in)
+    x0 = hold_input(chain, residual_in)
     got = back(run, chain, CFG, chain.write(packed(attn)), x0, w)
     _held(got, reference_tail(attn, residual_in, w), run)
 
