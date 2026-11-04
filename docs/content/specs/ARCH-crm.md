@@ -22,12 +22,11 @@ The CRM (Cache Replacement Management) performs the following tasks:
 1. [Overview](#1-overview)
 2. [Block Diagram](#2-block-diagram)
 3. [Interfaces](#3-interfaces)
-    - 3.1 [Table Layout](#31-table-layout)
-    - 3.2 [Table Types](#32-table-types)
-    - 3.3 [Bank State](#33-bank-state)
-4. [CRM Operations](#4-crm-operations)
-    - 4.1 [IPU Read](#41-ipu-read)
-    - 4.2 [IPU Write](#42-ipu-write)
+4. [Tables and Bank State](#4-tables-and-bank-state)
+    - 4.1 [Table Types](#41-table-types)
+    - 4.2 [Table Properties](#42-table-properties)
+    - 4.3 [Bank State](#43-bank-state)
+5. [CRM Operations](#5-crm-operations)
 
 ## 2. Block Diagram
 
@@ -37,12 +36,14 @@ The CRM (Cache Replacement Management) performs the following tasks:
 
 | Name | Direction | Description |
 |------|-----------|-------------|
-| RISC Configuration | Input | The RISC-V writes the tables (section 3.1) and starts the CRM. |
+| RISC Configuration | Input | The RISC-V writes the tables (section 4.2) and starts the CRM. |
 | Cache interface | Bidirectional | Read and write interface of data to the cache. |
 | IPU handshake | Bidirectional | In: the IPU address and table ID of each access. Out: publish bank state. |
 | External Memory Interface | Bidirectional | Read and write interface for prefetch data and for write-back. |
 
-### 3.0 DMA
+## 4. Tables and Bank State
+
+### 4.1 Table Types
 
 - 8 tables for each configuration.
     each table has two propertys 
@@ -95,7 +96,7 @@ The CRM (Cache Replacement Management) performs the following tasks:
         > configure it in the CRM for good measure.
 
 
-### 3.1 Table properties
+### 4.2 Table Properties
 
 > **TBD:** State the number of tables and how the host writes them.
 
@@ -113,7 +114,15 @@ The CRM (Cache Replacement Management) performs the following tasks:
 | `jump_back` |  | The number of addresses that the IPU can go back after it reads an address. Example: `read_addr = 100` and `jump_back = 10`. The IPU cannot access addresses `0`-`90`. |
 
 
-## 4. CRM Operations
+### 4.3 Bank State
+
+> **TBD:** Give the per-bank state that the CRM reads and writes.
+
+| Bits | Field | Description |
+|------|-------|-------------|
+| TBD | TBD | TBD. |
+
+## 5. CRM Operations
 
 > **TBD:** State which request starts each operation.
 
@@ -121,17 +130,10 @@ The CRM (Cache Replacement Management) performs the following tasks:
 
 | Operation | Purpose |
 |-----------|---------|
-| [IPU Read](#41-ipu-read) | TBD. |
-| [IPU Write](#42-ipu-write) | TBD. |
+| IPU Read | TBD. |
+| IPU Write | TBD. |
 
 
-### 4.1 Bank State(TAG)
-
-> **TBD:** Give the per-bank state that the CRM reads and writes.
-
-| Bits | Field | Description |
-|------|-------|-------------|
-| TBD | TBD | TBD. |
 
 ---
 
