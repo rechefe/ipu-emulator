@@ -11,15 +11,16 @@
 
     Layout (rows; kernel.toml's [abi] binds every base, cr.<name> below):
       x        channels x groups rows, row ch*groups + g, tokens in the lanes;
-               x is pinned at row 0 and read through CR0 (hardwired 0)
+               x has a CR of its own (a table ID)
       gamma    ceil(channels / 128) rows; beta likewise
       ones, neg_inv_n, inv_n   one constant row each: 1.0, -1/channels and
                1/channels in every lane
       neg_mean, temp, invstd   one scratch row each
       centered channels rows of scratch, reused per token group
       y        the same layout as x, after the scratch rows
-      channels, row_stride (1) and lanes (128; also beta's lane offset in R1)
-      are CRs too; cr.ds_qf holds the DS (LOW, 128 valid elements) and the
+      channels and lanes (128; also beta's lane offset in R1) are CRs too;
+      the row stride (1) is read from the hardwired CR1; cr.ds_qf holds the DS
+      (LOW, 128 valid elements) and the
       case's QF (HIGH).
     Padding lanes (tokens < 128) hold x = 0: mean 0, variance 0, rsqrt 0, so
     they become beta[ch] and are not part of the output tensor.
@@ -97,7 +98,7 @@
 {%- set OUTPUT_BASE = cr.y %}
 {%- set GAMMA_BASE = cr.gamma %}
 {%- set N_CH = cr.channels %}
-{%- set ROW_STRIDE = cr.row_stride %}
+{%- set ROW_STRIDE = ONE %}
 {%- set LANES = cr.lanes %}
 {%- set DSTRUCT = cr.ds_qf ~ ".L" %}
 {%- set QF = cr.ds_qf ~ ".H" %}
