@@ -123,21 +123,21 @@
     values in CR2-CR15). #}
 
 {% macro replicate_chunk() %}
-    SET {{ chunk_base }} {{ DATA_BASE }};;
+    SET {{ chunk_base }} {{ ZERO }};;
     ADD {{ chunk_base }} {{ chunk_base }} {{ chunk_ctr }};;
     SET {{ slot_lr }} {{ ZERO }};;
-    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ DATA_BASE }} {{ slot_lr }};;
     SET {{ slot_lr }} {{ ZERO }};;
     INC {{ slot_lr }} 128;;
-    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ DATA_BASE }} {{ slot_lr }};;
     SET {{ slot_lr }} {{ ZERO }};;
     INC {{ slot_lr }} 255;;
     INC {{ slot_lr }} 1;;
-    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ DATA_BASE }} {{ slot_lr }};;
     SET {{ slot_lr }} {{ ZERO }};;
     INC {{ slot_lr }} 255;;
     INC {{ slot_lr }} 129;;
-    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ DATA_BASE }} {{ slot_lr }};;
 {% endmacro %}
 
 {% macro accumulate_chunk(first) %}
@@ -158,7 +158,7 @@
         running sum after their own p_out's accumulation). #}
     ADD {{ w_row_ptr }} {{ w_ptr }} {{ ZERO }};;
     {%- for p_out in range(8) %}
-    LD.MULT R0 {{ w_row_ptr }} {{ ZERO }};;
+    LD.MULT R0 {{ w_row_ptr }} {{ WEIGHTS_BASE }};;
     SET {{ rc_idx_reg }} {{ SEED_CR[p_out] }};;
     ADD {{ k_idx }} {{ k_base }} {{ ZERO }};;
     DEC {{ k_idx }} 1;;
@@ -179,8 +179,8 @@
 
     SET {{ mask_off_lr }} {{ ZERO }};;
     LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
-    SET {{ out_ptr }} {{ OUTPUT_BASE }};;
-    SET {{ w_ptr }} {{ WEIGHTS_BASE }};;
+    SET {{ out_ptr }} {{ ZERO }};;
+    SET {{ w_ptr }} {{ ZERO }};;
     SET {{ chunk_ctr }} {{ ZERO }};;
     SET {{ k_base }} {{ ZERO }};;
 
@@ -291,7 +291,7 @@ wc_loop_continue:
 wc_loop_exit:
     {%- endif %}
 
-    ACTIVATE.EXACT {{ "identity" if activation == "none" else activation }} {{ DSTRUCT_STORE }} {{ ZERO }} {{ out_ptr }};;
+    ACTIVATE.EXACT {{ "identity" if activation == "none" else activation }} {{ DSTRUCT_STORE }} {{ OUTPUT_BASE }} {{ out_ptr }};;
 
 end:
     HALT;;
