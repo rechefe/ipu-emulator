@@ -42,8 +42,8 @@ shape = ["rows", "n"]
 pack = "row_slots"
 row = "128 + 2 * step"
 
-[scratch.num]                                        # numerators 2^(c * (x - max))
-shape = ["device_rows", 128]
+[scratch.num]                                        # numerators 2^(c * (x - max)), one row per token slot of a group (the padding slots too)
+shape = ["max(device_rows, min(device_rows * parts, 128))", 128]
 row = "128 + step"
 
 [scratch.log2e]                                      # C_VEC: c = log2(e) in every lane
@@ -84,7 +84,7 @@ dstruct      = "CR15"
 # device rows); the exact count at the last group is not derived yet.
 x = { repetitions = "ceil(rows / 128) + 1 - min(1, max(0, 129 - ps * (rows - 128 * (ceil(rows / 128) - 1))))" }
 y = {}
-num = { repetitions = "2 * ceil(rows / 128) + 1", pending = "indexes num by token, past its device rows" }
+num = { repetitions = "2 * ceil(rows / 128) + 1", pending = "repetitions not derived as a formula of the parameters" }
 log2e = {}
 max = {}
 rvec = { repetitions = "ceil(rows / 128)" }
