@@ -75,8 +75,9 @@ def test_unfold_8x8x240_stores_one_channel_per_row_and_a_zero_tail():
     channel per whole row, its 16 tokens in lanes 0..15, and the rest zero.
 
     Lanes 16..31 take ACC.STRIDE's decimation of x's zero padding (lanes
-    64..127 of each source row) and lanes 32..127 of R_ACC are never written,
-    so on a fresh model the tail is exactly 0.0: modelled, not assumed.
+    64..127 of each source row) and lanes 32..127 of R_ACC are never written
+    by ACC.STRIDE, so the kernel zeroes R_ACC itself once: the tail is exactly
+    0.0 on a fresh model too.
     """
     c, h, w = _shape("unfold_8x8x240")
     x = np.random.RandomState(0x058).uniform(-1.0, 1.0, size=(c, h, w)).astype(np.float32)
@@ -86,3 +87,36 @@ def test_unfold_8x8x240_stores_one_channel_per_row_and_a_zero_tail():
         i, j = divmod(s, 2)
         np.testing.assert_array_equal(rows[s, :, :16], x[:, i::2, j::2].reshape(c, 16))
         np.testing.assert_array_equal(rows[s, :, 16:], 0.0)
+
+
+#: Per unfold kernel: the first output lane ACC.STRIDE never writes, and
+#: unfold_32x32x144 (None) as the control that writes all 128.
+UNFOLD_TAILS = {
+    "unfold_8x8x240": 32,
+    "unfold_16x16x192": 64,
+    "unfold_32x32x144": None,
+}
+
+
+@pytest.mark.parametrize("kernel", list(UNFOLD_TAILS))
+def test_unfold_zeroes_lanes_acc_stride_never_writes(kernel):
+    """A kernel starts with whatever R_ACC the previous one left, so the lanes
+    ACC.STRIDE never writes must come out 0.0 from the kernel itself, not from
+    a clean register file.
+
+    R_ACC is filled with a finite non-zero sentinel (0x55 bytes, about 1.4e13
+    as FP32) before the run. unfold_32x32x144 writes every lane, so its output
+    must not depend on R_ACC at all.
+    """
+    c, h, w = _shape(kernel)
+    x = np.random.RandomState(0x5A).uniform(-1.0, 1.0, size=(c, h, w)).astype(np.float32)
+    chain = Chain(ElementFormat.FP32)
+    chain.model.write_register("r_acc", b"\x55" * REGISTER_DEFINITIONS["r_acc"]["size_bytes"])
+    step = chain.run(kernel, {}, {"x": x})
+    assert step.result.halted and step.result.fault is None, step.result.describe()
+    rows = np.frombuffer(step.result.raw_outputs["y"], dtype="<f4").reshape(4, -1, 128)
+    tail = UNFOLD_TAILS[kernel]
+    if tail is not None:
+        np.testing.assert_array_equal(rows[:, :, tail:], 0.0)
+    clean = Chain(ElementFormat.FP32).run(kernel, {}, {"x": x})
+    assert rows.tobytes() == clean.result.raw_outputs["y"], "a dirty R_ACC changed the output"

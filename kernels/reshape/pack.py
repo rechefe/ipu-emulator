@@ -18,7 +18,7 @@ Lanes 64..127 hold the case's ``pad`` parameter (0 unless a case sets it).
 ``phase_rows`` is the four stride-2 phases ``[4, c, tokens]`` (unfold's
 output, fold's input): row-major, ``ceil(tokens / 128)`` rows per channel,
 the lanes past the tokens NaN when packed (a fold that read them would
-fail), dropped on unpack (unfold leaves stale lanes there).
+fail), dropped on unpack (unfold zeroes the lanes it does not fill).
 """
 
 import math
