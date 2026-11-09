@@ -36,7 +36,7 @@ pack = "output_major_weights"
 shape = ["n_tg", "n", "n_tok"]
 
 [abi]
-b          = "CR0"
+b          = "CR2"
 a          = "CR9"
 y          = "CR5"
 d_start    = "CR6"

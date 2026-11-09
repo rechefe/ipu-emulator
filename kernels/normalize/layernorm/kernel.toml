@@ -14,7 +14,6 @@ tokens   = { type = "int", choices = [16, 64, 128, 256] }    # lanes; over 128 =
 dim      = { type = "int", choices = [0], default = 0 }      # ops.layernorm reduces dim 0
 
 [derived]
-row_stride = "1"
 lanes      = "128"
 ds_qf      = "halves(ds(128), case_qf)"  # LOW: the DS; HIGH: the case's QF (FP32 ignores it)
 
@@ -56,7 +55,7 @@ shape = [1, 128]
 shape = [1, 128]
 
 [abi]
-x          = "CR0"                        # table 0 (pinned): the hardwired 0; the tensor is placed anywhere
+x          = "CR13"
 beta       = "CR2"
 ones       = "CR3"
 neg_inv_n  = "CR4"
@@ -68,7 +67,6 @@ invstd     = "CR9"
 y          = "CR10"
 gamma      = "CR11"
 channels   = "CR12"
-row_stride = "CR13"
 lanes      = "CR14"
 ds_qf      = "CR15"
 

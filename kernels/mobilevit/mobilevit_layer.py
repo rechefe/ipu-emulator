@@ -7,7 +7,7 @@ steps of the full-layer chain tests, and their float64 reference.
 Every step is a registered kernel run on the chain's model, so a step reads
 what the step before it left in XMEM. Where a producer's stored rows are the
 consumer's layout, the hand-off is a verbatim copy or a relabel of those rows
-(:func:`relabel`, :func:`copy_to_row_0`); where no base or stride bridges the
+(:func:`relabel`); where no base or stride bridges the
 two (the attention seams: a head's channels into a transposed block, scores
 into the softmax kernels' slot layout), the host repacks what :meth:`Chain.read`
 or a step's unpacked output gives into the next step's array input, as the
@@ -251,12 +251,6 @@ def relabel(chain: Chain, resident: Resident, pack: str | None) -> Resident:
     return chain.write(chain.read(resident), at=resident.base_row, pack=pack)
 
 
-def copy_to_row_0(chain: Chain, resident: Resident, pack: str | None = None) -> Resident:
-    """``resident``'s rows, verbatim, at row 0: the input of a program that
-    reads its base through CR0."""
-    return chain.write(chain.read(resident), at=0, pack=pack)
-
-
 def stream_rows(values: np.ndarray) -> np.ndarray:
     """``[.., tokens]`` values as whole rows, zero past the tokens (as a pack lays them)."""
     flat = values.reshape(-1, values.shape[-1])
@@ -462,12 +456,13 @@ def run_layer(  # noqa: PLR0913 -- a layer's chain, input and weights, and the p
         stored = chain.read(resident)
         return stored[: rows or stored.shape[0], :n]
 
-    # x at row 0: LayerNorm reads it through CR0.
-    x0 = chain.write(stream_rows(x.astype(np.float32)), at=0)
     ln1 = run.run(
-        chain, layer.layernorm, {}, {"x": x0, "gamma": w["ln1_gamma"], "beta": w["ln1_beta"]},
+        chain,
+        layer.layernorm,
+        {},
+        {"x": x.astype(np.float32), "gamma": w["ln1_gamma"], "beta": w["ln1_beta"]},
         check=True,
-    ).resident["y"]  # fmt: skip
+    ).resident["y"]
     got["ln1"] = values(ln1)
     qkv = _project(
         run, chain, layer.qkv, _with_filler(chain, layer, chain.read(ln1), filler), w["w_qkv"]
@@ -487,13 +482,13 @@ def run_layer(  # noqa: PLR0913 -- a layer's chain, input and weights, and the p
         w["w_outproj"],
     )
     got["out_proj"] = values(proj, c)
-    # resid1 = out_proj + x: x (the layer input) at row 0 as a, OutProj's stream 0 rows as b.
+    # resid1 = out_proj + x: x (the layer input) as a, OutProj's stream 0 rows as b.
     proj0 = relabel(chain, proj.slice(0, c), None)
     resid1 = run.run(
         chain, layer.residual, {}, {"a": x.astype(np.float32), "b": proj0}, check=True
     ).resident["y"]
     got["resid1"] = values(resid1)
-    skip = chain.hold(copy_to_row_0(chain, resid1))  # LayerNorm's x, then residual 2's a
+    skip = chain.hold(resid1)  # LayerNorm's x as it stands, then residual 2's a
     ln2 = run.run(
         chain, layer.layernorm, {}, {"x": skip, "gamma": w["ln2_gamma"], "beta": w["ln2_beta"]},
         check=True,

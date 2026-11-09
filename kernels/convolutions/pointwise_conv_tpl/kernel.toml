@@ -30,7 +30,7 @@ has_bias     = { type = "bool", query_required = true }
 cols                = "1 + min(1, max(0, width - 1)) + 2 * min(1, max(0, width - 2)) + 4 * min(1, max(0, width - 4)) + 8 * min(1, max(0, width - 8)) + 16 * min(1, max(0, width - 16)) + 32 * min(1, max(0, width - 32)) + 64 * min(1, max(0, width - 64))"
 row_groups          = "ceil(height * cols / 128)"            # chunks per channel
 rows                = "row_groups * 128 / cols"              # the padded height (the chunked packs)
-num_passes          = "ceil(in_channels / 128)"              # written, never read by the program
+num_passes          = "ceil(in_channels / 128)"              # no CR: the program never reads it
 tail_size           = "in_channels - (num_passes - 1) * 128" # the last pass's channels; written, never read
 pipeline_limit_full = "128 - 5"
 pipeline_limit_tail = "tail_size - 5"                        # may be negative (two's complement)
@@ -67,13 +67,12 @@ shape = [1, 128]
 after = "w"
 bytes = "../masks.py:keep_all_mask"
 
-# Every CR the old setup() wrote (CR2-CR14; CR0 is x's base, CR15 the
-# default dstructure). The program sets its own LRs.
+# Every CR the program reads (CR2-CR15; num_passes is not among them, so x has
+# CR4). The program sets its own LRs.
 [abi]
-x                   = "CR0"
+x                   = "CR4"
 mask                = "CR2"
 y                   = "CR3"
-num_passes          = "CR4"
 row_groups          = "CR5"
 pipeline_limit_full = "CR6"
 out_channels        = "CR7"

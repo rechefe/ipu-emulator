@@ -5,10 +5,10 @@
 the first ``n_tok`` lanes valid; what the other lanes hold is the kernel's
 business (zero at L4 and L5: unfold zeroes R_ACC once). ``matmul_*_x128`` reads its data
 ``b`` as one row per channel, in the same order, and contracts each lane on
-its own: lanes past ``n_tok`` reach only output lanes past ``n_tok``. Both
-programs read their input through CR0, so the host copies one stream's
-stored rows to row 0 verbatim (every lane, no repack), and the matmul reads
-them there. That copy is the seam under test:
+its own: lanes past ``n_tok`` reach only output lanes past ``n_tok``. The
+matmul reads one stream's stored rows where unfold left them: the host only
+relabels them in place as the matmul's pack (``channel_major``), every lane,
+no repack. That relabel is the seam under test:
 
 * through the real kernels the matmul gives the shared references chained in
   float64 (the stride-2 decimation, then ``ops.linear``), each step held to
@@ -91,7 +91,7 @@ def _want(seam: Seam, x: np.ndarray, w: np.ndarray) -> np.ndarray:
 
 
 def _run(seam: Seam, seed: int, *, valid=None, tail=None) -> tuple[np.ndarray, np.ndarray]:
-    """The chain: unfold, stream ``STREAM``'s rows copied to row 0, the matmul.
+    """The chain: unfold, stream ``STREAM``'s rows relabelled in place, the matmul.
     ``valid`` puts that value in one channel's valid lanes of the copy, ``tail``
     in every row's lanes past ``n_tok``. Returns the matmul's output
     ``[n_out, n_tok]`` and the reference."""
@@ -99,12 +99,13 @@ def _run(seam: Seam, seed: int, *, valid=None, tail=None) -> tuple[np.ndarray, n
     chain = Chain(FP32)
     unfolded = chain.run(seam.unfold, {}, {"x": x}, check=True)
     assert unfolded.result.passed, unfolded.result.describe()
-    rows = chain.read(unfolded.resident["y"].slice(STREAM * seam.c, seam.c))
+    stream = unfolded.resident["y"].slice(STREAM * seam.c, seam.c)
+    rows = chain.read(stream)
     if valid is not None:
         rows[seam.mutated_channel, : seam.n_tok] = valid
     if tail is not None:
         rows[:, seam.n_tok :] = tail
-    data = chain.write(rows, at=0, pack="channel_major")
+    data = chain.write(rows, at=stream.base_row, pack="channel_major")
     out = chain.write(np.full((seam.n_out, LANES), POISON))
     # With a wrong valid lane the matmul's golden would follow the copy; only the chained reference fails.
     step = chain.run(seam.matmul, {}, {"b": data, "a": w}, check=valid is None, at={"y": out})

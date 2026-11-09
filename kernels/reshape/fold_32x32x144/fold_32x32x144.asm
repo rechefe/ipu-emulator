@@ -126,11 +126,9 @@
     and both are deliberately reused as LR6's restart value (tg 0 or 1) and
     CR0 as LR10's.
 
-    CR0 IS NOT A FREE BASE: a host write to CR0 or CR1 raises.
-    unfold_32x32x144 reads its stripe-0 source base through CR0 only because
-    that base is row 0. Fold's stripe-0 destination base is not 0 (y sits
-    after x), so it cannot use CR0 -- the trap fold_16x16x192 also notes.
-    CR13 is used instead.
+    CR0 IS NOT A FREE BASE: a host write to CR0 or CR1 raises. Fold's
+    stripe-0 destination has a CR of its own (CR13) -- the trap
+    fold_16x16x192 also notes.
 
     MULT CYCLE-START CONTRACT (issue #157, as in fold_16x16x192): MULT.RC.VV
     reads its Ra data (R0) as it was at the start of the cycle, so it cannot

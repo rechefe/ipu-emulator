@@ -96,10 +96,8 @@
     CR1 (hardwired 1) is the channel loop's increment.
 
     CR0 IS NOT A FREE BASE: CR0 (0) and CR1 (1) are hardwired, and a host
-    write to either raises. unfold_8x8x240 reads its input through CR0 only
-    because that base is row 0. Fold's output base is not 0 (y sits after
-    x), so it is bound to CR13 -- the trap fold_16x16x192 and
-    fold_32x32x144 also note.
+    write to either raises. Fold's output has a CR of its own (CR13) -- the
+    trap fold_16x16x192 and fold_32x32x144 also note.
 
     MULT CYCLE-START CONTRACT (issue #157, as in fold_16x16x192 and
     fold_32x32x144): MULT.RC.VV reads its Ra data (R0) as it was at the

@@ -28,8 +28,8 @@ Query: `bazel run //kernels:query -- layernorm channels=C tokens=T`. `x` and
 `y` are one 128-element FP32 row per channel and token group (row
 `ch * ceil(tokens / 128) + g`), tokens in the first lanes; `x` is zero past
 them, and `y` holds `beta[ch]` there. `gamma` and `beta` are `channels` FP32
-values in zero-padded rows. `x` sits at row 0: the program reads its base
-through `CR0`.
+values in zero-padded rows. `x` has a CR of its own (`CR13`), so a chain can
+hand it a step's output in place.
 
 ## `l2_normalize`
 

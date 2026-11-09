@@ -15,9 +15,9 @@ Attention leaves the packed layout (scores have no channel axis): the
 unpacked Q, K, V go through the attention kernels as in
 :mod:`mobilevit_layer`, and the pack kernel takes the result back.
 
-The residual add reads ``a`` through CR0, so ``a`` sits at row 0: the layer
-input X is written there and held until the first add; the second add's
-``a`` (the first add's output) is copied there verbatim. The pack, unpack
+The layer input X is written and held until the first residual add, which
+takes it as ``a``; the second add's ``a`` (the first add's output) is held
+where the add wrote it, and LayerNorm reads it there. The pack, unpack
 and linear programs leave R_MASK one-hot and the residual add assumes all
 ones: every kernel start sets R_MASK to all ones.
 """
@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 import numpy as np
-from mobilevit_layer import L4, L5, MAPPINGS, POISON, Layer, LayerRun, copy_to_row_0
+from mobilevit_layer import L4, L5, MAPPINGS, POISON, Layer, LayerRun
 
 from ipu_harness.chain import Chain, Resident
 from ipu_isa.geometry import LANES
@@ -172,8 +172,7 @@ def pack(run: LayerRun, chain: Chain, cfg: PackedLayer, x: np.ndarray) -> Reside
 def residual_add(
     run: LayerRun, chain: Chain, cfg: PackedLayer, a0: Resident, b: Resident
 ) -> Resident:
-    """``a0 + b``, ``a0`` at row 0 (CR0)."""
-    assert a0.base_row == 0
+    """``a0 + b``."""
     step = run.run(chain, cfg.residual, {}, {"a": a0, "b": b}, check=True)
     return step.resident["y"]
 
@@ -209,17 +208,17 @@ def back(
     w: Mapping[str, np.ndarray],
 ) -> dict[str, np.ndarray]:
     """OutProj on the packed attention output, the residual add with the held
-    x0 (row 0, released after), LayerNorm, FFN1, FFN2 and the second residual
-    add (its ``a``, the first add's output, copied to row 0 and held): the
+    x0 (released after), LayerNorm, FFN1, FFN2 and the second residual
+    add (its ``a``, the first add's output, held where the add wrote it): the
     stages ``out_proj`` to ``resid2``."""
     proj = linear(run, chain, cfg, cfg.linear, attn, w["w_outproj"])
     got = {"out_proj": unpacked(chain, cfg, proj)}
     resid1 = residual_add(run, chain, cfg, x0, proj)
     chain.release(x0)
     got["resid1"] = unpacked(chain, cfg, resid1)
-    # The second add's a, at row 0 (over x0) and held until it: the steps
-    # between would otherwise place their regions there.
-    skip = chain.hold(copy_to_row_0(chain, resid1))
+    # The second add's a, held until it: the steps between would otherwise
+    # place their regions over it.
+    skip = chain.hold(resid1)
     ln2 = layernorm(run, chain, cfg, skip, w["ln2_gamma"], w["ln2_beta"])
     got["ln2"] = unpacked(chain, cfg, ln2)
     ffn1 = linear(run, chain, cfg, cfg.linear_silu, ln2, w["w_ffn1"])
@@ -232,9 +231,9 @@ def back(
     return got
 
 
-def hold_at_row_0(chain: Chain, x: np.ndarray) -> Resident:
-    """``x`` ``[channels, tokens]`` packed at row 0 and held: the first residual add's ``a``."""
-    return chain.hold(chain.write(packed(x), at=0))
+def hold_input(chain: Chain, x: np.ndarray) -> Resident:
+    """``x`` ``[channels, tokens]`` packed and held: the first residual add's ``a``."""
+    return chain.hold(chain.write(packed(x)))
 
 
 def run_layer(
@@ -244,11 +243,11 @@ def run_layer(
     boundary out (``mobilevit_layer.STAGES``, the reference's shapes, plus
     ``packed``: the pack step's rows).
 
-    x goes to row 0 (the first residual add's ``a``) after the score steps,
-    which pin their own inputs there at L5, and before the pack step."""
+    x is written and held (the first residual add's ``a``) after the score
+    steps and before the pack step."""
     got, (q, k, v) = front(run, chain, cfg, packed(x), w)
     got |= attention(run, chain, cfg, q, k, v)
-    x0 = hold_at_row_0(chain, x)
+    x0 = hold_input(chain, x)
     attn = pack(run, chain, cfg, got["attn_v"])
     got["packed"] = chain.read(attn).astype(np.float64)
     got |= back(run, chain, cfg, attn, x0, w)

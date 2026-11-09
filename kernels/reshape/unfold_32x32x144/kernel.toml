@@ -29,7 +29,7 @@ fill  = 1.0
 after = "x"                   # between x and y, as the old map
 
 [abi]
-x        = "CR0"
+x        = "CR2"
 ones     = "CR8"
 y        = "CR9"
 phase_rows = "CR10"

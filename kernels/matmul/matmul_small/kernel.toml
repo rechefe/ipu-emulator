@@ -32,7 +32,7 @@ shape = ["k", "n"]
 shape = ["m", "n"]
 
 [abi]
-a         = "CR0"
+a         = "CR12"
 y         = "CR2"
 idx_step  = "CR3"
 row_step  = "CR4"

@@ -77,7 +77,7 @@
 {% set j_limit       = cr.n %}  {# 144 = N_OUT                                #}
 {% set w_stride      = cr.w_stride %}  {# 256 = W_STRIDE bytes per output channel    #}
 
-{% set DATA_BASE     = "CR0" %}   {# base of D                                  #}
+{% set DATA_BASE     = cr.b %}   {# base of D                                  #}
 {% set ZERO          = "CR0" %}   {# hardwired read-only 0                      #}
 {% set ONE           = "CR1" %}   {# hardwired read-only 1                      #}
 {% set w_hi_ptr      = "LR1" %}   {# row of W[j,128..143] in table a: w_ptr + 1 #}
