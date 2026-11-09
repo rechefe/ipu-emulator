@@ -48,7 +48,7 @@ from ipu_harness.placement import Placement, place
 from ipu_harness.reference import evaluate, load_reference
 from ipu_harness.stages import StageOptions, StagesRun, run_stages
 from ipu_harness.table_bases import check_table_bases
-from ipu_harness.table_ids import TableBinder, TableSet
+from ipu_harness.table_ids import MAX_TABLES, TableBinder, TableSet
 from ipu_harness.tables import TableRecorder, TableReport, check, overhead_rows
 from ipu_harness.variants import Variant, as_variant
 from ipu_isa.codec.word import word_bytes
@@ -563,15 +563,15 @@ def binder_for(
 ) -> TableBinder:
     """The table-ID binder of one kernel run: a chain step's resident inputs
     hint the IDs their producers gave them."""
-    extra = {} if order is None else {"order": order}
+    ids = tuple(range(MAX_TABLES)) if order is None else order
     if shared is None:
-        return TableBinder(plan, placement, **extra)
+        return TableBinder(plan, placement, order=ids)
     return TableBinder(
         plan,
         placement,
         hints=shared.table_hints,
         kernel_written=shared.kernel_written,
-        **extra,
+        order=ids,
     )
 
 

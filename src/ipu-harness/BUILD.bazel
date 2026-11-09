@@ -488,6 +488,7 @@ py_pytest_test(
         "//src/ipu-isa:ipu_isa_lib",
         requirement("numpy"),
         requirement("pytest"),
+        requirement("torch"),
     ],
 )
 
