@@ -442,9 +442,9 @@ def check(
     ]
     start = {**CR_READ_ONLY_INITIAL_VALUES, **launch}
     by_cr: dict[int, list[Table]] = {}
-    for table in tables:
-        for number in (table.cr, *table.views):
-            by_cr.setdefault(number, []).append(table)
+    for t in tables:
+        for number in (t.cr, *t.views):
+            by_cr.setdefault(number, []).append(t)
     groups: dict[str, list[TableAccess]] = {t.label: [] for t in tables}
     stray: dict[int, list[XmemAccess]] = {}
     changed: dict[str, set[int]] = {}

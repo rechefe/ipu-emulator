@@ -26,7 +26,7 @@ STAGE_PREFIX = "stage"
 
 
 def _count(r: Reader, raw: object, names: Iterable[str], path: tuple[str, ...]) -> int | str:
-    value = r.typed(raw, (int, str), path)
+    value: int | str = r.typed(raw, (int, str), path)
     if isinstance(value, str):
         check_expression(r, value, names, path)
     elif value < 0:
