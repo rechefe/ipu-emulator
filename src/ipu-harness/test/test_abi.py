@@ -43,7 +43,7 @@ x    = "CR2"
 y    = "CR3"
 rows = "CR4"
 s    = "CR5"
-neg  = "LR3"
+neg  = "CR8"
 
 [cases.default]
 rows = 4
@@ -81,7 +81,7 @@ def test_scale_bases_and_integers_are_the_same_in_every_format_and_s_is_encoded(
     got = writes(m, {"rows": 4, "s": 2.0}, fmt)
     assert {k: got[k] for k in ("CR2", "CR3", "CR4")} == {"CR2": 0, "CR3": 4, "CR4": 4}
     assert got["CR5"] == TWO[fmt]
-    assert got["LR3"] == 0xFFFFFFFC  # -4, two's complement in 32 bits
+    assert got["CR8"] == 0xFFFFFFFC  # -4, two's complement in 32 bits
     # The default DS in CR15.L: valid_elements 128 in bits 7:0, one partition
     # (code 0 at bits 9:8), valid_partitions 1 at bits 15:12.
     assert got["CR15"] == DEFAULT_DS == 0x1080
@@ -121,7 +121,7 @@ def test_a_derived_value_may_read_a_regions_base(tmp_path):
     toml = SCALE.format(unit="").replace(
         'neg = "-rows"', 'neg = "-rows"\ny1 = "base(y) + 1"\ny2 = "y1 + rows"'
     )
-    toml = toml.replace('neg  = "LR3"', 'neg  = "LR3"\ny1   = "CR6"\ny2   = "CR7"')
+    toml = toml.replace('neg  = "CR8"', 'neg  = "CR8"\ny1   = "CR6"\ny2   = "CR7"')
     m = kernel(tmp_path, toml)
     assert m.placed == {"y1": frozenset({"y"}), "y2": frozenset({"y"})}
     plan = plan_case(m, {"rows": 4, "s": 2.0}, FP32)
@@ -136,7 +136,7 @@ def test_a_pin_and_a_placed_value_may_read_the_formats_row_bytes(tmp_path, fmt, 
     toml = SCALE.format(unit="").replace(
         'neg = "-rows"', 'neg = "-rows"\nstride = "512 / row_bytes"'
     )
-    toml = toml.replace('neg  = "LR3"', 'neg  = "LR3"\nstride = "CR6"')
+    toml = toml.replace('neg  = "CR8"', 'neg  = "CR8"\nstride = "CR6"')
     y = '[outputs.y]\nshape = ["rows", 128]'
     toml = toml.replace(y, f'{y}\nrow = "131072 / row_bytes"')
     m = kernel(tmp_path, toml)
@@ -189,7 +189,7 @@ def test_a_bytes_kernels_base_counts_bytes(tmp_path, monkeypatch):
     toml = SCALE.format(unit=', unit = "bytes"').replace(
         'neg = "-rows"', 'neg = "-rows"\nyb = "base(y) + 1"'
     )
-    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nyb   = "CR6"'))
+    m = kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\nyb   = "CR6"'))
     assert writes(m, {"rows": 4, "s": 2.0}, FP32)["CR6"] == 4 * 512 + 1
 
 
@@ -236,7 +236,7 @@ def test_a_derived_ds_binds_any_cr(tmp_path):
     toml = SCALE.format(unit="").replace(
         'neg = "-rows"', 'neg = "-rows"\ndtok = "ds(rows * 16, 2)"'
     )
-    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\ndtok = "CR13"'))
+    m = kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\ndtok = "CR13"'))
     got = writes(m, {"rows": 4, "s": 2.0}, FP32)
     # valid elements, partitions 2 (code 1 at bits 9:8), valid_partitions 2 (bits 15:12).
     assert got["CR13"] == 64 | 1 << 8 | 2 << 12
@@ -262,14 +262,14 @@ def test_a_cr_helper_takes_its_later_arguments_by_position_or_name(tmp_path, exp
     toml = SCALE.format(unit="").replace(
         'neg = "-rows"', f'neg = "-rows"\nd = "{expression}"\ne = "{word}"'
     )
-    toml = toml.replace('neg  = "LR3"', 'neg  = "LR3"\nd    = "CR13"\ne    = "CR14"')
+    toml = toml.replace('neg  = "CR8"', 'neg  = "CR8"\nd    = "CR13"\ne    = "CR14"')
     got = writes(kernel(tmp_path, toml), {"rows": 4, "s": 2.0}, FP32)
     assert got["CR13"] == got["CR14"]
 
 
 def test_case_qf_is_the_variants_qf_half(tmp_path):
     toml = SCALE.format(unit="").replace('neg = "-rows"', 'neg = "-rows"\nq = "case_qf"')
-    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nq    = "CR13"'))
+    m = kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\nq    = "CR13"'))
     assert m.placed == {"q": frozenset()}
     assert writes(m, {"rows": 4, "s": 2.0}, E4)["CR13"] == 0x148
     assert writes(m, {"rows": 4, "s": 2.0}, E3)["CR13"] == 0x138
@@ -292,7 +292,7 @@ def test_case_qf_is_the_variants_qf_half(tmp_path):
 )
 def test_a_bad_cr_helper_value_is_located(tmp_path, expression, match):
     toml = SCALE.format(unit="").replace('neg = "-rows"', f'neg = "-rows"\nd = "{expression}"')
-    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nd    = "CR13"'))
+    m = kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\nd    = "CR13"'))
     with pytest.raises(PlanError, match=re.escape(match)):
         plan_case(m, {"rows": 4, "s": 2.0}, FP32)
 
@@ -311,7 +311,7 @@ def test_a_bad_cr_helper_value_is_located(tmp_path, expression, match):
 def test_a_misshapen_cr_helper_call_is_a_load_error(tmp_path, expression, match):
     toml = SCALE.format(unit="").replace('neg = "-rows"', f'neg = "-rows"\nd = "{expression}"')
     with pytest.raises(ManifestError, match=match):
-        kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nd    = "CR13"'))
+        kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\nd    = "CR13"'))
 
 
 def test_a_tensor_pinned_at_row_0_can_be_read_through_cr0(tmp_path):
@@ -337,19 +337,19 @@ def test_a_str_parameter_cannot_be_bound(tmp_path):
         's    = { type = "float" }\nmode = { type = "str", default = "a" }',
     )
     with pytest.raises(ManifestError, match="mode is a str parameter"):
-        kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nmode = "CR6"'))
+        kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\nmode = "CR6"'))
 
 
 def test_template_names_and_apply_through_the_register_file(tmp_path):
     m = kernel(tmp_path, SCALE.format(unit=""))
     names = template_names(m)
-    assert dict(names["cr"]) == {"x": "CR2", "y": "CR3", "rows": "CR4", "s": "CR5"}
-    assert dict(names["lr"]) == {"neg": "LR3"}
+    assert dict(names["cr"]) == {"x": "CR2", "y": "CR3", "rows": "CR4", "s": "CR5", "neg": "CR8"}
+    assert dict(names["lr"]) == {}  # an LR is never bound
     plan = plan_case(m, {"rows": 4, "s": 2.0}, FP32)
     model = ReferenceModel(ElementFormat.FP32)
     apply(model, register_writes(plan, place(plan)))
     assert [model.read_register("cr", i) for i in (2, 3, 4, 5)] == [0, 4, 4, 0x40000000]
-    assert model.read_register("lr", 3) == 0xFFFFFFFC
+    assert model.read_register("cr", 8) == 0xFFFFFFFC
 
 
 # --- the CR-read check -----------------------------------------------------------------
@@ -391,8 +391,8 @@ def test_a_value_that_does_not_fit_a_register_is_located(tmp_path):
     toml = SCALE.format(unit="").replace(
         'neg = "-rows"', 'neg = "-rows"\nhuge = "rows * 1000000000"'
     )
-    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nhuge = "LR4"'))
-    assert writes(m, {"rows": 4, "s": 2.0}, FP32)["LR4"] == 4_000_000_000  # an unsigned word
+    m = kernel(tmp_path, toml.replace('neg  = "CR8"', 'neg  = "CR8"\nhuge = "CR9"'))
+    assert writes(m, {"rows": 4, "s": 2.0}, FP32)["CR9"] == 4_000_000_000  # an unsigned word
     plan = plan_case(m, {"rows": 5, "s": 2.0}, FP32)
     with pytest.raises(PlanError, match="does not fit a 32-bit register") as error:
         register_writes(plan, place(plan))

@@ -32,14 +32,17 @@ def _binding_problem(
     banks = {"CR": REGISTER_DEFINITIONS["cr"]["count"], "LR": REGISTER_DEFINITIONS["lr"]["count"]}
     if not m or int(m.group(2)) >= banks[m.group(1)]:
         return f"{label} = {register!r} is no CR or LR register"
+    if m.group(1) == "LR":
+        return (
+            f"{table} binds {register}: LRs start as garbage and are set by the program "
+            "(bind the value to a CR and SET the LR)"
+        )
     if m.group(1) == "CR" and int(m.group(2)) < 2:
         return f"{table} binds {register}, a hardwired constant"
     if register in used:
         return f"{table} {name} and {used[register]} both bind {register}"
     if name in params and params[name].type == "str":
         return f"{table} {name} is a str parameter; a register holds a number"
-    if register.startswith("LR") and name in params and params[name].type == "float":
-        return f"{table} {name} is an element scalar (a float); it binds a CR, not {register}"
     return None
 
 
@@ -223,8 +226,8 @@ def check_placed_conditions(
 def check_abi(manifest: KernelManifest, abi: Mapping[str, str], *, where: str) -> Mapping[str, str]:
     """``abi`` checked by ``[abi]``'s rules, for a table that is not the
     kernel's own (a stage's, E06-14): each name is the kernel's parameter,
-    tensor or derived value, each register a CR (not CR0 or CR1) or LR bound
-    once, no ``str`` parameter, no float on an LR. Unlike ``[abi]``, it need
+    tensor or derived value, each register a CR (not CR0 or CR1) bound
+    once, no ``str`` parameter, no LR. Unlike ``[abi]``, it need
     not bind every tensor.
 
     Args:

@@ -382,6 +382,11 @@ sequenceDiagram
 [Execution flow](../requirements/execution-flow.md) defines the commands and the
 state transitions.
 
+**Kernel start.** A kernel start sets `R_MASK` to all ones unless the kernel is
+launched to keep it ([OQ-50](../requirements/open-questions.md)). It writes no
+other register: LR, the vector registers and the accumulator keep what the
+previous kernel left, so the new kernel writes a register before it reads it. The CRs are the host's: the kernel's CR bank.
+
 > **TBD - ask Aviv:** after the `HALT` instruction retires, does the kernel end
 > (the IPU goes to `IDLE`, or the armed kernel starts), or does the IPU enter
 > `HALTED` ([OQ-31](../requirements/open-questions.md))?
@@ -428,6 +433,7 @@ The emulator's `BREAK` and `AAQ_EXACT` slots and its FP32 mode are emulator-only
 | Row address | `table_id` and `offset` (section 9). | A flat row number, `0`-`16383` in NX8. A base `CR` with `table_id` bits set is out of range. |
 | Dynamic format | Section 8.1. | Only `sign = 1` and `num_bits = 8`. |
 | `NaN` in NX8 | Section 7.1. | No `NaN` code. |
+| Kernel start | Section 10: `R_MASK` becomes all ones; the other registers keep their values. | The emulator has no kernel start. The harness writes `R_MASK` and fills the LRs and the data registers with seeded garbage at each launch (`ipu_harness.kernel_start`). |
 
 The stage-level differences are in section 5 of
 [Control Stage ARCH](ARCH-stage-ctrl.md),

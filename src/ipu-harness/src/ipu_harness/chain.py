@@ -34,12 +34,11 @@ written) (a copy to
 row 0, a repack the host computes, a mutation in place) and returns them as
 a resident; what a write covers goes stale, as after a step.
 
-Only XMEM is the chain's state. A step's registers start as the step before
-left them, as on the hardware: ``load_program`` resets the PC, and the step
-writes only its ``[abi]`` registers and CR15 (the default DS); LRs, the vector registers, the
-accumulator and the flags carry over. ``reset=("r_mask",)`` puts the named
-register banks back to their reset values first, for a program that assumes
-them (R_MASK all ones: every lane on) after one that left them changed.
+Only XMEM is the chain's state. Each step is a kernel start
+(:mod:`ipu_harness.kernel_start`): the step writes its ``[abi]`` registers and
+CR15 (the default DS), R_MASK is all ones, and the LRs and the vector
+registers are seeded garbage, whatever the step before left in them. A kernel
+that declares ``[kernel] keeps_mask`` finds R_MASK as the step before left it.
 
     chain = Chain(variant("e4"))
     first = chain.run(scale, {"rows": 2, "s": 2.0}, {"x": x})
@@ -66,10 +65,8 @@ from ipu_harness.placement import Region, place
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import RunOptions, RunResult, SharedModel, run_kernel
 from ipu_harness.variants import Variant, as_variant
-from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
 from ipu_isa.formats import addressable_rows
 from ipu_isa.geometry import LANES
-from ipu_isa.registers import REGISTER_DEFINITIONS
 
 __all__ = ["Chain", "ChainStep", "Resident"]
 
@@ -174,7 +171,6 @@ class Chain:
         self._writers = 0  # steps, host writes and reserves: Resident.step
         self._live: list[Resident] = []
         self._held: list[Resident] = []
-        self._fresh: ReferenceModel | None = None  # reset values, for reset=
 
     def hold(self, resident: Resident) -> Resident:
         """Keep ``resident`` in XMEM until :meth:`release`: later steps place
@@ -387,18 +383,6 @@ class Chain:
             raise ConfigurationError(f"rows {_rows(resident)}: the chain does not hold them")
         self._held = [t for t in self._held if t is not resident]
 
-    def _reset(self, banks: tuple[str, ...]) -> None:
-        """Write every register of ``banks`` with its reset value: a fresh
-        model's (CR0 and CR1 are hardwired)."""
-        if not banks:
-            return
-        if self._fresh is None:
-            self._fresh = ReferenceModel(self.format.mode)
-        for bank in banks:
-            for index in range(REGISTER_DEFINITIONS[bank]["count"]):
-                if bank != "cr" or index not in CR_READ_ONLY_INITIAL_VALUES:
-                    self.model.write_register(bank, self._fresh.read_register(bank, index), index)
-
     def _step_options(self) -> RunOptions:
         """The options of the next step: its own trace and output files."""
         step, options = self._steps, self.options
@@ -418,7 +402,6 @@ class Chain:
         *,
         check: bool = False,
         at: Mapping[str, int | Resident] | None = None,
-        reset: Iterable[str] = (),
     ) -> ChainStep:
         """Run one kernel on the chain's model.
 
@@ -440,11 +423,6 @@ class Chain:
                 output is. The step's output is that resident; it, and the
                 tensor it is a slice of, stay live, unless the step wrote
                 other rows of that tensor: the target then stays on its own.
-            reset: Register banks (``r_mask``, ``lr``, ``r_acc``, ... as
-                ``ReferenceModel.read_register`` names them) set to their reset
-                values before the step: every register of each, CR0 and CR1
-                aside. Done before the step's placement is checked, so a
-                refused step may have reset them.
 
         Returns:
             The run, and its outputs as ``Resident`` tensors.
@@ -469,7 +447,6 @@ class Chain:
             {n: v.base_row if isinstance(v, Resident) else v for n, v in (at or {}).items()},
             inputs,
         )
-        banks = _checked_banks(manifest, reset)
         pinned, arrays = self._split_inputs(plan, inputs)
         case = Case(
             name=_STEP_CASE,
@@ -495,8 +472,8 @@ class Chain:
             MappingProxyType(placed),
             MappingProxyType(reserved),
             avoid,
+            self._steps,
         )
-        self._reset(banks)
         options = self._step_options()
         self._steps += 1
         writer = self._writer()
@@ -589,20 +566,6 @@ def _checked_at(
                 f"{manifest.name}: {name} is pinned to row {pin} in kernel.toml; at gives {row}"
             )
     return dict(at)
-
-
-def _checked_banks(manifest: KernelManifest, reset: Iterable[str]) -> tuple[str, ...]:
-    """``reset``, once each is a register bank."""
-    if isinstance(reset, str):
-        raise ConfigurationError(f"{manifest.name}: reset takes bank names, not {reset!r}")
-    banks = tuple(reset)
-    for bank in banks:
-        if bank not in REGISTER_DEFINITIONS:
-            raise ConfigurationError(
-                f"{manifest.name}: reset names {bank!r}, no register bank "
-                f"(banks: {', '.join(sorted(REGISTER_DEFINITIONS))})"
-            )
-    return banks
 
 
 def _reserved(

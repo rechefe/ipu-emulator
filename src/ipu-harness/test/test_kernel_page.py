@@ -30,13 +30,13 @@ def test_the_abi_table_names_each_binding_its_kind(tmp_path):
     m = write_scale(tmp_path, with_reference=False)
     toml = (m.directory / "kernel.toml").read_text()
     toml = toml.replace("[derived]\n", '[derived]\nhalf = "rows // 2"\n')
-    toml = toml.replace("[abi]\n", '[abi]\nhalf = "LR3"\n')
+    toml = toml.replace("[abi]\n", '[abi]\nhalf = "CR8"\n')
     toml = toml.replace('y    = "CR3"', 'y    = { register = "CR3", offset = -1 }')
     (m.directory / "kernel.toml").write_text(toml)
     m = load_manifest(m.directory)
     rows = {r["name"]: (r["register"], r["kind"], r["offset"], r["when"]) for r in abi_table(m)}
     assert rows == {
-        "half": ("LR3", "derived", 0, None),
+        "half": ("CR8", "derived", 0, None),
         "x": ("CR2", "region", 0, None),
         "y": ("CR3", "region", -1, None),
         "rows": ("CR4", "int", 0, None),

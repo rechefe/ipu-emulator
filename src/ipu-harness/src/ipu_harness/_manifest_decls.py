@@ -32,7 +32,7 @@ SECTION_OF: Mapping[Role, str] = {role: section for section, role in ROLES.items
 #: The keys each table takes (``manifest.SCHEMA_KEYS`` lists them for the
 #: reference page).
 BENCHMARK_KEYS = ("points", "per", "max_cycles")
-KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost", "tables")
+KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost", "tables", "keeps_mask")
 PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit", "query_required")
 TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
     "input": ("shape", "row", "after", "when", "pack", "range"),
@@ -224,7 +224,7 @@ class KernelManifest:
         formats: The element formats it runs in.
         params: The parameters, by name.
         tensors: Inputs, outputs and scratch regions, by name.
-        abi: Name to ``"CR2"``..``"CR15"`` or ``"LR0"``..``"LR15"`` (``"CR0"`` for a
+        abi: Name to ``"CR2"``..``"CR15"`` (``"CR0"`` for a
             tensor pinned at row 0).
         abi_offsets: A tensor's offset from its base row, when ``[abi]`` gives one.
         abi_when: A binding's condition, when it has one (a conditional tensor's
@@ -248,6 +248,8 @@ class KernelManifest:
             hook runs them), then by tensor name.
         tables_hook: ``"tables.py:fn"`` (``[kernel] tables``), whose
             ``fn(plan)`` returns the declarations as ``[tables]`` spells them.
+        keeps_mask: ``[kernel] keeps_mask``: the kernel reads the R_MASK the
+            kernel before it left, so the harness does not reset it.
     """
 
     name: str
@@ -274,6 +276,7 @@ class KernelManifest:
         default_factory=lambda: MappingProxyType({})
     )
     tables_hook: str | None = None
+    keeps_mask: bool = False
 
     @property
     def label(self) -> str:

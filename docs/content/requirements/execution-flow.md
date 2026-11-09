@@ -66,7 +66,7 @@ A command written in a state that does not accept it has no effect and returns a
 | IPU-EXEC-2 | The IPU shall accept `ARM` only while `tables_valid` of the inactive context is high. Otherwise `ARM` returns an AXI error. |
 | IPU-EXEC-3 | An `ARM` accepted in `IDLE` shall flip `active_ctx`, set PC = 0 and start fetching. See [OQ-13](open-questions.md). |
 | IPU-EXEC-4 | An `ARM` accepted in `RUNNING_UNARMED` or `HALTED` shall set the armed flag and lock the inactive context. |
-| IPU-EXEC-5 | A kernel start shall change no architectural state except `active_ctx` and the PC. LR and the vector registers keep their values. |
+| IPU-EXEC-5 | A kernel start shall change no architectural state except `active_ctx`, the PC and `R_MASK`. `R_MASK` becomes all ones unless the kernel is launched to keep it (see [OQ-50](open-questions.md)). LR and the other vector registers keep their values, which are undefined to the new kernel. |
 | IPU-EXEC-6 | The IPU shall reject host writes to the IMEM bank and the CR bank of a locked context with an AXI error. |
 
 ### Done and handoff
@@ -194,5 +194,5 @@ The handoff is coherent because:
 | SW-1 | Before `ARM`, the host writes the kernel to the IMEM bank and the CR bank of the inactive context. |
 | SW-2 | Before `ARM`, the host writes and commits the table set of the inactive context. |
 | SW-3 | Every path through a kernel reaches a `HALT` word. |
-| SW-4 | A kernel does not read LR or vector register values left by an earlier kernel. |
+| SW-4 | A kernel does not read LR or vector register values left by an earlier kernel. A kernel that reads the `R_MASK` the earlier kernel left is launched to keep it, and declares it. |
 | SW-5 | The two table sets do not claim the same XMEM bank at the same time. See [OQ-11](open-questions.md). |

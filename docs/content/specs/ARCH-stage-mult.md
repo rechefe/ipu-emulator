@@ -171,7 +171,10 @@ All other bits are `1`. The vectors for each `num_partitions`, element `0` first
 > **Note:** After reset, every bit of `R_MASK` is `1`: every element keeps its
 > product.
 
-> **TBD - ask Aviv:** the default value of `R_MASK`.
+`R_MASK` is all ones after reset and at every kernel start
+([IPU-EXEC-5](../requirements/execution-flow.md)). A kernel that reads the mask
+the previous kernel left is launched to keep it
+([OQ-50](../requirements/open-questions.md)).
 
 > **TBD - ask Aviv:** do we add masking examples?
 

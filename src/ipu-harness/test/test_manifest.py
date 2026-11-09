@@ -265,7 +265,8 @@ RULES = [
     ),
     ('s    = "CR5"', 's    = "cr05"', "is no CR or LR register", 's    = "cr05"'),
     ('rows = "CR4"', 'rows = "LR16"', "is no CR or LR register", 'rows = "LR16"'),
-    ('s    = "CR5"', 's    = "LR5"', "an element scalar (a float); it binds a CR", 's    = "LR5"'),
+    ('s    = "CR5"', 's    = "LR5"', "LRs start as garbage", 's    = "LR5"'),
+    ('rows = "CR4"', 'rows = "LR3"', "binds LR3: LRs start as garbage", 'rows = "LR3"'),
     ('s    = "CR5"', 's    = "CR4"', "both bind CR4", 's    = "CR4"'),
     ('s    = "CR5"', 's    = "CR5"\nz    = "CR6"', "[abi] z names no parameter", 'z    = "CR6"'),
     ('y    = "CR3"\n', "", "[abi] does not bind tensor 'y'", "[outputs.y]"),
@@ -575,15 +576,15 @@ def test_an_input_range_is_per_format(tmp_path):
     }
 
 
-def test_derived_values_lr_presets_and_scratch(tmp_path):
+def test_derived_values_and_scratch(tmp_path):
     toml = SCALE.replace(
         "[abi]\n",
         "[scratch.log2e]\nshape = [1, 128]\nfill = 1.4426950408889634\n\n"
-        '[derived]\nhalf = "rows // 2"\n\n[abi]\nlog2e = "CR6"\nhalf = "LR3"\n',
+        '[derived]\nhalf = "rows // 2"\n\n[abi]\nlog2e = "CR6"\nhalf = "CR7"\n',
     )
     m = load_manifest(kernel(tmp_path, toml))
     assert m.tensors["log2e"].role == "scratch" and m.tensors["log2e"].fill == 1.4426950408889634
-    assert m.derived["half"] == "rows // 2" and m.abi["half"] == "LR3"
+    assert m.derived["half"] == "rows // 2" and m.abi["half"] == "CR7"
     assert m.params["s"].type == "float" and m.cases["default"].values["s"] == 2.0
     assert isinstance(
         load_manifest(kernel(tmp_path, SCALE.replace("s = 2.0", "s = 2"), "ints"))

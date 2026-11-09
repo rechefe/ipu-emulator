@@ -19,7 +19,7 @@ The residual add reads ``a`` through CR0, so ``a`` sits at row 0: the layer
 input X is written there and held until the first add; the second add's
 ``a`` (the first add's output) is copied there verbatim. The pack, unpack
 and linear programs leave R_MASK one-hot and the residual add assumes all
-ones: each add resets it (``reset=("r_mask",)``).
+ones: every kernel start sets R_MASK to all ones.
 """
 
 from __future__ import annotations
@@ -172,9 +172,9 @@ def pack(run: LayerRun, chain: Chain, cfg: PackedLayer, x: np.ndarray) -> Reside
 def residual_add(
     run: LayerRun, chain: Chain, cfg: PackedLayer, a0: Resident, b: Resident
 ) -> Resident:
-    """``a0 + b``, ``a0`` at row 0 (CR0), R_MASK reset to all ones first."""
+    """``a0 + b``, ``a0`` at row 0 (CR0)."""
     assert a0.base_row == 0
-    step = run.run(chain, cfg.residual, {}, {"a": a0, "b": b}, check=True, reset=("r_mask",))
+    step = run.run(chain, cfg.residual, {}, {"a": a0, "b": b}, check=True)
     return step.resident["y"]
 
 
