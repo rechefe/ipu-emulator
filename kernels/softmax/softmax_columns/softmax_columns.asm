@@ -78,7 +78,8 @@ p1_chunk:
     LD.MULT R0 {{lr_ioff}} {{ cr.x }} ;;                     {#- R0 = x[0,c] (visible next cycle) -#}
     MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = c*x[0,c] -#}
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride_chunks }} ;;                      {#- advance to r=1 -#}
-    ACC.MAX.FIRST ;;                                        {#- R_ACC = c*x[0,c] -#}
+    ACC.MAX.FIRST ;                                         {#- R_ACC = c*x[0,c] -#}
+    BGE.S {{lr_row}} {{ cr.rows }} p1_done ;;               {#- one row: nothing left to loop over -#}
 
 p1_row:
     LD.MULT R0 {{lr_ioff}} {{ cr.x }} ;;                     {#- R0 = x[r,c] (visible next cycle) -#}
@@ -88,6 +89,7 @@ p1_row:
     ACC.MAX ;;                                              {#- R_ACC = max(R_ACC, c*x[r,c]) -#}
     BLT.S {{lr_row}} {{ cr.rows }} p1_row ;;
 
+p1_done:
     ACTIVATE.EXACT identity CR15.L {{ cr.max }} {{lr_svoff}} ;;  {#- reads R_ACC forwarded; CMAX[c] <- per-column max -#}
 
     ADD {{lr_chunk}} {{lr_chunk}} CR1 ;
@@ -146,7 +148,8 @@ p3_chunk:
     LD.MULT.CYCLIC {{lr_ioff}} {{ cr.num }} {{lr_cyc}} ;;       {#- R_CYCLIC = num[0,c] (visible next cycle) -#}
     MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;         {#- MULT_RES = num[0,c]*1.0 -#}
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride_chunks }} ;;                      {#- advance to r=1 -#}
-    ACC.ADD.FIRST ;;                                        {#- R_ACC = num[0,c] -#}
+    ACC.ADD.FIRST ;                                         {#- R_ACC = num[0,c] -#}
+    BGE.S {{lr_row}} {{ cr.rows }} p3_done ;;               {#- one row: nothing left to loop over -#}
 
 p3_row:
     LD.MULT.CYCLIC {{lr_ioff}} {{ cr.num }} {{lr_cyc}} ;;       {#- R_CYCLIC = num[r,c] (visible next cycle) -#}
@@ -156,6 +159,7 @@ p3_row:
     ACC.ADD ;;                                              {#- R_ACC += num[r,c] -#}
     BLT.S {{lr_row}} {{ cr.rows }} p3_row ;;
 
+p3_done:
     ACTIVATE.EXACT reciprocal CR15.L {{ cr.rvec }} {{lr_svoff}} ;;  {#- reads R_ACC forwarded; RVEC[c] <- 1/sum -#}
 
     ADD {{lr_chunk}} {{lr_chunk}} CR1 ;

@@ -105,12 +105,13 @@ def test_columns_axis_routing(registry, width, expected):
 
 
 @pytest.mark.parametrize("n", [256, 384, 512, 1024])
-def test_a_multiple_of_128_is_a_long_row_with_no_tail_chunk(registry, n):
+def test_a_multiple_of_128_is_a_long_row_whose_last_chunk_is_the_tail(registry, n):
     verdict = along_rows(registry, 8, n)
     assert verdict.kernel_name == "softmax_rows_long"
     plan = runs(verdict)
-    assert plan.derived["tail"] == ds(0)  # valid_elements 0: the tail block is a no-op
-    assert plan.derived["cpr"] == n // 128  # no phantom tail chunk
+    assert plan.derived["tail"] == ds(128)  # the last whole chunk is the tail
+    assert plan.derived["full_chunks"] == n // 128 - 1
+    assert plan.derived["cpr"] == n // 128  # no chunk past the row
 
 
 @pytest.mark.parametrize("rows", [1, 4, 128, 129, 200, 1000])

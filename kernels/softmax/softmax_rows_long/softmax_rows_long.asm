@@ -3,8 +3,10 @@
 
     y[r, :] = softmax(x[r, :]) for a (rows, n) matrix with n > 128. A mix of
     softmax_rows (whole 128-wide rows) and softmax_rows_partial (a sub-128
-    tail): each row is full_chunks = n // 128 whole 128-element chunks and a
-    tail chunk of n % 128 elements, cpr = ceil(n / 128) chunks in all. Row r,
+    tail): each row is full_chunks whole 128-element chunks and a tail chunk of
+    1..128 elements, cpr = full_chunks + 1 = ceil(n / 128) chunks in all. When
+    128 divides n the last whole chunk is the tail (128 elements), so the row's
+    last chunk is always the tail and no chunk is loaded past the row. Row r,
     chunk c is at <region> + r * cpr + c; the tail chunk's lanes past the tail
     are zero (the harness packs x row-major, each row zero-padded to cpr rows).
 
@@ -12,10 +14,6 @@
 
     so the native exp2 activation applies directly; c is the resident vector
     log2e and the 1.0 scalar the read-only CR1.
-
-    When 128 divides n there is no tail chunk: the tail block still runs, with
-    valid_elements = 0 (cr.tail), which makes its running AGG.MAX / AGG.SUM
-    exact no-ops, so the same program covers that shape.
 
     Per-row scalars maxvec[r]/rvec[r] hold one value per row in a 128-element
     vector, so all four passes run once per GROUP of up to 128 rows: each group
@@ -43,12 +41,12 @@
       cr.num    num, the numerators         cr.log2e C_VEC: log2(e) in every lane
       cr.max    maxvec row                  cr.rvec  rvec row (1 / sum)
       cr.row_stride        = 1 (one row per chunk)
-      cr.tail              = the tail DS: valid_elements = n % 128
+      cr.tail              = the tail DS: valid_elements = n - 128 * full_chunks (1..128)
       cr.ds_qf             LOW: the full-chunk DS (valid_elements = 128); HIGH:
                              the case's QF (every MULT reads it; FP32 ignores it)
       cr.group_cap         = 128 (the group cap, and maxvec's index base in R1)
       cr.rows              = total rows (the group loop bound)
-      cr.full_chunks       = n // 128 (the full-chunk loop bound)
+      cr.full_chunks       = (n - 1) // 128 (the full-chunk loop bound)
       cr.cpr               = chunks per row
       cr.row_stride_chunks = cpr (XMEM rows per matrix row: the row stride)
       CR0 = 0 and CR1 = 1 are read-only; cr.ds_qf.L holds the full-chunk DS

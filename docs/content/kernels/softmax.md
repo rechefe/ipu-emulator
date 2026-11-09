@@ -116,9 +116,10 @@ A row spans several chunks, so the max and the sum span them too. Each pass
 keeps a **running** per-row scalar: `AGG.*.FIRST` on the first chunk, then plain
 `AGG.*` on the rest, combining into the same accumulator slot.
 
-When `N` is not a multiple of 128 the last chunk is partial and reduces with
-`valid_elements = tail` instead of 128. When `N` *is* a multiple of 128 there is
-no tail chunk at all.
+The last chunk of a row is always the **tail** and reduces with
+`valid_elements = tail` (1 to 128) instead of 128. When `N` is a multiple of
+128 the last whole chunk is the tail, with `tail = 128`, so no chunk is loaded
+past the row.
 
 ## The column kernels
 
