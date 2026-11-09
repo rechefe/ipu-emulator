@@ -56,9 +56,10 @@
     ABI: kernel.toml's [abi] binds the CRs below.
       CR0          x's stripe 0, read through the hardwired 0: x must sit at
                    row 0
-      CR13         x's stripe 1 (CR1 is read-only, so not CR1)
+                   (stripe 1 is LR5 = LR4 + CR7 rows on, through CR0 as well)
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
-      CR9..CR12    streams TL, TR, BL, BR of y
+      CR9          y (stream TL; streams TR, BL, BR are LR9 = LR8 + k * CR10 rows on)
+      CR10         c * tg: rows per stream of y
       CR7          the channel loop's bound (192)
     LR0 (R_CYCLIC slot 0, mask offset and shift 0, ACC.STRIDE slot 0), LR4
     (source row offset within each stripe), LR8 (destination row offset)
@@ -115,7 +116,8 @@ ch_loop:
     # the row the NEXT word will multiply (MULT cycle-start contract, see header).
 
     # -- Stream TL  (h=on=even cols, v=on=even rows) -------------------------
-    LD.MULT R0 LR4 CR13;
+    ADD                 LR5 LR4 {{ cr.c }};
+    LD.MULT R0 LR5 CR0;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on LR0;;
     LD.MULT R0 LR4 CR0;
@@ -124,25 +126,30 @@ ch_loop:
     ACTIVATE.EXACT identity CR15.L CR9 LR8;; # TL → DST_TL + ch (lanes 0..63 valid)
 
     # -- Stream TR  (h=on_inv=odd cols, v=on=even rows) ----------------------
-    LD.MULT R0 LR4 CR13;
+    ADD                 LR5 LR4 {{ cr.c }};
+    LD.MULT R0 LR5 CR0;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on LR0;;
     LD.MULT R0 LR4 CR0;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on LR1;;
-    ACTIVATE.EXACT identity CR15.L CR10 LR8;; # TR
+    ADD                 LR9 LR8 {{ cr.phase_rows }};
+    ACTIVATE.EXACT identity CR15.L CR9 LR9;; # TR
 
     # -- Stream BL  (h=on=even cols, v=on_inv=odd rows) ----------------------
-    LD.MULT R0 LR4 CR13;
+    ADD                 LR5 LR4 {{ cr.c }};
+    LD.MULT R0 LR5 CR0;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on_inv LR0;;
     LD.MULT R0 LR4 CR0;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on_inv LR1;;
-    ACTIVATE.EXACT identity CR15.L CR11 LR8;; # BL
+    ADD                 LR9 LR9 {{ cr.phase_rows }};
+    ACTIVATE.EXACT identity CR15.L CR9 LR9;; # BL
 
     # -- Stream BR  (h=on_inv=odd cols, v=on_inv=odd rows) -------------------
-    LD.MULT R0 LR4 CR13;
+    ADD                 LR5 LR4 {{ cr.c }};
+    LD.MULT R0 LR5 CR0;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on_inv LR0;;
     # lr4 must advance BEFORE the load that uses the next channel's offset: LR
@@ -151,7 +158,8 @@ ch_loop:
     LD.MULT R0 LR4 CR0;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on_inv LR1;;
-    ACTIVATE.EXACT identity CR15.L CR12 LR8;; # BR
+    ADD                 LR9 LR9 {{ cr.phase_rows }};
+    ACTIVATE.EXACT identity CR15.L CR9 LR9;; # BR
 
     # -- Advance pointers; loop ----------------------------------------------
     ADD                 LR8 LR8 CR1;;       # dst offset: next channel (+1 row)

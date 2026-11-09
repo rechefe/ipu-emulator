@@ -22,12 +22,14 @@ band      = "cell_row_count + (height - cell_row_start) * (1 - min(1, cell_row_c
 # the shape grammar has no comparison. An empty band is refused by y's shape.
 inside    = "1 / max(0, min(1, height - cell_row_start - band + 1))"
 stride    = "(width + 2) * 2"                               # padded input row stride (rows)
-x_band    = "base(x) + cell_row_start * stride"             # the band's top halo row
-ky_band   = "base(ky) + cell_row_start"                     # the band's first Ky row
+x_first   = "cell_row_start * stride + 2"                   # the band's first real tile, in x
+band_end  = "cell_row_start + band"                         # the row loop ends here (it starts at cell_row_start)
 eight     = "8"                                             # fine phases per axis
 two       = "2"                                             # 128-lane tiles per cell
 lanes     = "128"                                           # R_CYCLIC slot step
 two_w     = "2 * width"
+width_two_w = "halves(width, two_w)"                       # CR8: W low, 2 * W high
+lanes_start = "halves(lanes, cell_row_start)"              # CR12: the cyclic slot step low, the band's first row high
 qf        = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, Ky, Kx, the scratch plane, y (the old image).
@@ -53,18 +55,18 @@ shape = ["8 * stride", 128]
 after = "kx"
 
 [abi]
-x_band  = "CR2"
+x       = "CR2"
 y       = "CR3"
-ky_band = "CR4"
+ky      = "CR4"
 kx      = "CR5"
 t       = "CR6"
 stride  = "CR7"
-width   = "CR8"
-band    = "CR9"
+width_two_w = "CR8"
+band_end = "CR9"
 eight   = "CR10"
 two     = "CR11"
-lanes   = "CR12"
-two_w   = "CR13"
+lanes_start = "CR12"
+x_first = "CR13"
 qf      = "CR14"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.

@@ -45,11 +45,20 @@ c        = "CR4"
 mask     = "CR5"
 slot1    = "CR6"
 acc      = "CR7"
-relu     = { register = "CR7", offset = -3 }    # stored at acc + 3 (one row per store)
+relu     = "CR10"
 lane     = "CR8"
 two      = "CR9"
 last_row = "CR11"
 qf       = "CR14"
+
+# The XMEM tables (ipu_harness.tables): every region is read or written once, in order.
+[tables]
+a = {}
+w = {}
+c = {}
+acc = {}
+relu = {}
+mask = {}
 
 [golden]
 reference = "reference.py:reference"

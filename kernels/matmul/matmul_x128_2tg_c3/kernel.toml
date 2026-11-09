@@ -15,9 +15,6 @@ activation = { type = "str", choices = ["none"], default = "none" }  # fused at 
 n_tg       = "ceil(m / 128)"                           # token groups
 n_tok      = "m / n_tg"                                # tokens per group: one row
 chunks     = "ceil(k / 128)"                           # weight rows per output channel
-w1         = "base(a) + 1"                             # weight chunk 1
-w2         = "base(a) + 2"                             # weight chunk 2
-y_tg1      = "base(y) + n"                             # token group 1's output
 d_start0   = "-n_tg"                                   # tg 0 data startup (rows)
 d_start1   = "-1"                                      # tg 1 data startup (rows)
 idx_start  = "-1"                                      # per-chunk fixed_idx startup
@@ -43,10 +40,7 @@ shape = ["n_tg", "n", "n_tok"]
 [abi]
 b          = "CR0"
 a          = "CR9"
-w1         = "CR2"
-w2         = "CR3"
 y          = "CR4"
-y_tg1      = "CR5"
 d_start0   = "CR6"
 d_start1   = "CR7"
 idx_start  = "CR8"
@@ -59,8 +53,8 @@ qf         = "CR14"  # the MULT QF half: CR14.L
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
 b = { repetitions = "2 * n", overhead_rows = 2 }
-a = { repetitions = "n + 1", also_via = ["w1", "w2"] }
-y = { repetitions = "n", also_via = ["y_tg1"] }
+a = { repetitions = "n + 1" }
+y = { repetitions = "n" }
 
 [golden]
 op = "linear"                                    # activation(a @ b), ipu_kernels.reference.ops

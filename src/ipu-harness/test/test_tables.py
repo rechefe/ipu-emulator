@@ -311,7 +311,10 @@ def test_a_wrong_stage_declaration_does_not_load(tmp_path, tables, error):
         _staged(tmp_path, tables)
 
 
-def test_a_table_reached_through_a_derived_base_is_pending(tmp_path):
+def test_a_table_reached_through_a_derived_base_is_pending(tmp_path, monkeypatch):
+    # No kernel binds a placed value to a CR any more (ipu_harness.table_bases refuses it
+    # while staging); the report's rule stays until the table-ID change removes it.
+    monkeypatch.setattr("ipu_harness.runner.check_table_bases", lambda *args, **kwargs: None)
     manifest = _kernel(tmp_path, "[tables]\nx = {}\ny = {}\n")
     toml = manifest.directory / "kernel.toml"
     text = toml.read_text().replace('qf = "case_qf"', 'qf = "case_qf"\nxb = "base(x)"')

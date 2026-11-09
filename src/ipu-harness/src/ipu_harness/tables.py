@@ -30,10 +30,11 @@ reserves the larger overhead.
 
 Pending (reported, not failed): a table the manifest marks ``pending = "why"``
 (its errors are reported as pending, with the reason; a case where nothing
-is wrong with it warns), a table also reached through another CR
-(``also_via``), a base CR holding the base plus an ``[abi]`` offset, a table
-read through the hardwired ``CR0``. Each breaks "one table, one CR holding
-its table ID", which a later change of the programs fixes. Warnings: declared
+is wrong with it warns), a table read through the hardwired ``CR0`` (pinned
+at row 0). Also reported, though :func:`ipu_harness.table_bases.check_table_bases`
+now refuses the programs that have them: a table also reached through another
+CR (``also_via``), a base CR holding the base plus an ``[abi]`` offset, or a
+value derived from it. Each breaks "one table, one CR holding its table ID". Warnings: declared
 overhead the run does not reach, a declared table it never touches.
 """
 

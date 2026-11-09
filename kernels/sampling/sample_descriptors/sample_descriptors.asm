@@ -10,21 +10,24 @@
       (../pack.py, hwc_halo).
     Weights: nine rows per table, dy/dx order, phases 8*a+b in lanes 0..63
       (../tables.py): one table (scratch k, stock = false) or one per cell
-      (k_cells, stock = true); CR13 steps the table per cell.
+      (k_cells, stock = true); a stock band starts at table cell_row_start * W (CR13)
+      and steps 9 rows per cell.
     Output: (8*band_height,8*W,256), directly in raster order.
 
     ABI (kernel.toml [abi]); CR0=0, CR1=1 (hardware constants)
-    CR2=input base at band's top halo row; CR3=output base
-    CR4=weight base for band's first cell
+    CR2=input base; CR3=output base
+    CR4=weight table base (k, or k_cells in stock mode)
     CR5=padded input row stride=2*(W+2)
     CR6=CR5-4, next tap-row address delta
-    CR7=W; CR8=band coarse height; CR9=2 channel tiles; CR10=8 phases/axis
+    CR7.L=W, CR7.H=band coarse height; CR8=the band's top halo row in the
+    input (cell_row_start * stride); CR9=2 channel tiles; CR10=8 phases/axis
     CR11=16*W-16 output phase-row gap; CR12=7*16*W output cell-row gap
-    CR13=weight cell step (0 shared, 9 stock); CR15=128-lane dstructure
+    CR13=stock mode: the band's first cell table (cell_row_start * W * 9);
+    CR15=128-lane dstructure
 
     LR0=zero/cyclic slot; LR1=coarse row; LR2=coarse column
-    LR3=a; LR4=b; LR5=channel tile; LR6=top-left neighbor row offset
-    LR7=cell weight offset; LR8=output cell origin; LR9=phase scalar index
+    LR3=a; LR4=b; LR5=channel tile; LR6=top-left neighbor row (in x, from the band's
+    top halo row up); LR7=cell weight row (in k or k_cells); LR8=output cell origin; LR9=phase scalar index
     LR10=output walking address; LR11=tap descriptor address; LR12=tap weight
 
     MULT reads register snapshots. Prefetch the NEXT weight while multiplying
@@ -32,8 +35,8 @@
     Address arithmetic is live for loads/stores; BLT.S sees start-of-word LRs.
     The final tap never prefetches beyond the input/weights allocation.
 -#}
-    SET LR0 CR0 ; SET LR1 CR0 ; SET LR6 CR0 ;;
-    SET LR7 CR0 ; SET LR8 CR0 ;;
+    SET LR0 CR0 ; SET LR1 CR0 ; SET LR6 CR8 ;;
+    SET LR7 {{ 'CR13' if stock else 'CR0' }} ; SET LR8 CR0 ;;
 row_loop:
     SET LR2 CR0 ;;
 cell_loop:
@@ -62,8 +65,8 @@ channel_loop:
     BLT.S LR4 CR10 pixel_loop ;;
     ADD LR3 LR3 CR1 ; ADD LR10 LR10 CR11 ;;
     BLT.S LR3 CR10 phase_row_loop ;;
-    ADD LR2 LR2 CR1 ; ADD LR6 LR6 CR9 ; ADD LR7 LR7 CR13 ;;
-    INC LR8 16 ; BLT.S LR2 CR7 cell_loop ;;
+    ADD LR2 LR2 CR1 ; ADD LR6 LR6 CR9 ;;
+    INC LR8 16 ;{% if stock %} INC LR7 9 ;{% endif %} BLT.S LR2 CR7.L cell_loop ;;
     ADD LR1 LR1 CR1 ; INC LR6 4 ; ADD LR8 LR8 CR12 ;;
-    BLT.S LR1 CR8 row_loop ;;
+    BLT.S LR1 CR7.H row_loop ;;
     HALT ;;

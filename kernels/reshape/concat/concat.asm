@@ -109,7 +109,6 @@
 {% set A_BASE     = "CR5"  %}  {# base row of input A #}
 {% set B_BASE     = "CR6"  %}  {# base row of input B #}
 {% set OUT_A_BASE = "CR7"  %}  {# output base row for A's copy (== 0 conceptually; may be nonzero) #}
-{% set OUT_B_BASE = "CR8"  %}  {# output base row for B's copy (== C_A) #}
 {% set C_A_COUNT  = "CR9"  %}  {# channel count of A #}
 {% set C_B_COUNT  = "CR10" %}  {# channel count of B #}
 {% set DSTRUCT    = "CR15" %}  {# reserved dstructure register #}
@@ -120,9 +119,8 @@
 # out_ptr is a 0-based ROW COUNTER for this pass, not an absolute row number:
 # ACTIVATE.EXACT's address is table_id + table_offset (base + offset),
 # so the pass's absolute output base lives entirely in its CR `table_id`
-# operand (OUT_A_BASE here, OUT_B_BASE in pass 2) and out_ptr only ever
-# counts 0, 1, 2, ... within the pass -- no separate ADD needed to fold a
-# nonzero base into it at startup.
+# operand (OUT_A_BASE, both passes) and out_ptr only ever counts rows
+# within the table: 0, 1, 2, ... here, C_A, C_A + 1, ... in pass 2.
 # ---------------------------------------------------------------------------
     SET                 {{ rc_slot0 }} {{ ZERO }};;
     SET                 {{ src_ptr }} {{ PTR_START }};;
@@ -154,10 +152,11 @@ a_loop:
     BLT.S {{ row_index }} {{ row_limit }} a_loop;;
 
 # ---------------------------------------------------------------------------
-# Pass 2: copy B's C_B rows -> output rows [OUT_B_BASE, OUT_B_BASE + C_B)
+# Pass 2: copy B's C_B rows -> output rows [C_A, C_A + C_B): the same table, out_ptr
+# starts at C_A
 # ---------------------------------------------------------------------------
     SET                 {{ src_ptr }} {{ PTR_START }};;
-    SET                 {{ out_ptr }} {{ ZERO }};;
+    SET                 {{ out_ptr }} {{ C_A_COUNT }};;
     SET                 {{ row_index }} {{ ZERO }};;
     SET                 {{ row_limit }} {{ C_B_COUNT }};;
     # Prime the pipeline: load B[0].
@@ -169,7 +168,7 @@ b_loop:
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ src_ptr }} {{ B_BASE }} {{ rc_slot0 }};
     ADD {{ src_ptr }} {{ src_ptr }} {{ row_stride }};;
-    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ OUT_B_BASE }} {{ out_ptr }};
+    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ OUT_A_BASE }} {{ out_ptr }};
     ADD {{ row_index }} {{ row_index }} {{ ONE }};;
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ row_stride }};
     BLT.S {{ row_index }} {{ row_limit }} b_loop;;
