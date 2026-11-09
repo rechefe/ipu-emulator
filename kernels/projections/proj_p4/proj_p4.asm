@@ -115,8 +115,8 @@
 
     SET {{ stream_idx }} {{ ZERO }};                              # p = 0
     SET {{ rc_slot0 }} {{ ZERO }};;
-    SET {{ stream_data_base }} {{ DATA_BASE }};;                    # stream 0 D base
-    SET {{ stream_out_base }} {{ OUTPUT_BASE }};;                   # stream 0 C base
+    SET {{ stream_data_base }} {{ ZERO }};;                    # stream 0 D base
+    SET {{ stream_out_base }} {{ ZERO }};;                   # stream 0 C base
 
 stream_loop:
     SET {{ j_idx }} {{ ZERO }};;                                    # j = 0
@@ -133,16 +133,16 @@ j_loop:
     SET {{ chunk_idx }} {{ ZERO }};;                                # chunk_idx = 0
 
     # Prime k=0's row for chunk0 (snapshot contract, see header). data_ptr
-    # already holds the ABSOLUTE row (stream_data_base includes DATA_BASE),
-    # so every data load below uses base=ZERO (CR0=0).
-    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    # already holds the row offset within b (stream_data_base starts at 0),
+    # so every data load below reads b through its own CR, DATA_BASE.
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
-    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT.S {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
@@ -151,7 +151,7 @@ j_loop:
 k_chunk0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
-    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT.S {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
@@ -180,7 +180,7 @@ use_full_bound:
 chunk_body:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
-    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT.S {{ k_idx }} {{ bound }} chunk_body;;
@@ -189,7 +189,7 @@ chunk_body:
     BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} chunk_loop;;
 
 store_out:
-    ACTIVATE.EXACT {{ "identity" if activation == "none" else activation }} {{ DSTRUCT }} {{ ZERO }} {{ out_ptr }};;  # y[p,0,j,:] = act(R_ACC)
+    ACTIVATE.EXACT {{ "identity" if activation == "none" else activation }} {{ DSTRUCT }} {{ OUTPUT_BASE }} {{ out_ptr }};;  # y[p,0,j,:] = act(R_ACC)
     ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};;                     # advance output ptr, packed (1 row/j)
 
     ADD {{ weight_row_off }} {{ weight_row_off }} {{ W_STRIDE }};

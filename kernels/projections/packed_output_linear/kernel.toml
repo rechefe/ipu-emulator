@@ -58,9 +58,9 @@ seed7        = "CR15"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-a = { pending = "repetitions not derived as a formula of the parameters", also_via = ["CR0"] }
-b = { also_via = ["CR0"] }
-y = { also_via = ["CR0"] }
+a = { pending = "repetitions not derived as a formula of the parameters" }
+b = {}
+y = {}
 mask = {}
 
 [golden]

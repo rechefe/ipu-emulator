@@ -142,9 +142,9 @@
 
 {% set rc_idx_reg   = "LR0"  %}  {# r_cyclic base ELEMENT offset for masked gather/scatter/multiply #}
 {% set mask_off_lr  = "LR1"  %}  {# mask_offset carrier / LD.MASK offset / LD.MULT.CYCLIC index carrier #}
-{% set read_ptr     = "LR2"  %}  {# per-step row read pointer (offset from a ZERO base -- absolute row number) #}
+{% set read_ptr     = "LR2"  %}  {# per-step row read pointer: row offset within x, then within centered #}
 {% set write_ptr    = "LR3"  %}  {# per-step row write pointer #}
-{% set gb_ptr       = "LR4"  %}  {# gamma/beta row pointer in step 6, recomputed each row from base + running row offset #}
+{% set gb_ptr       = "LR4"  %}  {# gamma/beta row offset in step 6, recomputed each row from the running row offset #}
 {% set row_idx      = "LR5"  %}  {# packed-row / row counter (runtime loop induction variable) #}
 {% set row_limit    = "LR6"  %}  {# runtime loop bound, set per step #}
 {% set row_stride   = "LR7"  %}  {# 1 = row stride #}
@@ -230,9 +230,9 @@
 
     LD.MULT R0 {{ mask_off_lr }} {{ NEG_INV_N_BASE }};;   # r0 <- -1/240 (every lane)
 
-    SET {{ read_ptr }} {{ DATA_BASE }};;
+    SET {{ read_ptr }} {{ ZERO }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime row 0 into slot 0
 
 {%- for p_in in range(PACK) %}
@@ -243,7 +243,7 @@
     {%- if is_last_p %}
     MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if is_first else "" }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
     MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
@@ -282,7 +282,7 @@ step1_loop:
         later in step 3). #}
     MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
     BLT.S {{ row_idx }} {{ row_limit }} step1_loop;;
@@ -321,11 +321,11 @@ step1_loop:
     LD.MASK {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;   # unmasked full-row pass -- see header note on the two mask rows
     LD.MULT.CYCLIC {{ mask_off_lr }} {{ NEG_MEAN_TILE }} {{ slot128_lr }};;
 
-    SET {{ read_ptr }} {{ DATA_BASE }};;
+    SET {{ read_ptr }} {{ ZERO }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
     SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ACTIVATE.EXACT's store offset is a FORWARDED read and a same-word ADD (lr slot) dispatches before it, so the store sees the POST-increment value -- the -1 startup offset compensates, same convention layernorm.asm (layernorm_16x240) uses throughout
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime row 0 into slot 0
 
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
@@ -350,7 +350,7 @@ step1_loop:
         write_ptr's advance in the same store-word. #}
     ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ CENTERED_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 
     SET {{ row_idx }} {{ ZERO }};;
@@ -378,7 +378,7 @@ step3_loop:
         uses all three, with no room to spare. #}
     ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ CENTERED_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
     BLT.S {{ row_idx }} {{ row_limit }} step3_loop;;
@@ -390,9 +390,9 @@ step3_loop:
 # -----------------------------------------------------------------------
 
     LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;   # back to the one-hot mask -- step 3 switched to all-ones
-    SET {{ read_ptr }} {{ CENTERED_BASE }};;
+    SET {{ read_ptr }} {{ ZERO }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime row 0 into slot 0
 
 {%- for p_in in range(PACK) %}
@@ -403,7 +403,7 @@ step3_loop:
     {%- if is_last_p %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if is_first else "" }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
@@ -426,7 +426,7 @@ step4a_loop:
         an off-by-one extra loop pass. #}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
     BLT.S {{ row_idx }} {{ row_limit }} step4a_loop;;
@@ -537,28 +537,28 @@ step4a_loop:
     LD.MASK {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;   # unmasked full-row pass -- see header note on the two mask rows
     LD.MULT R1 {{ mask_off_lr }} {{ INVSTD_TILE }};;
 
-    SET {{ read_ptr }} {{ CENTERED_BASE }};;
+    SET {{ read_ptr }} {{ ZERO }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
     SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: see step 3's note on ACTIVATE.EXACT's forwarded read/same-word-ADD timing
     SET {{ row_idx }} {{ ZERO }};;
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime centered[0] into slot 0
 
     # ---- row 0 (peeled): row_idx == 0, pointers land at the tile bases ----
     MULT.RC.VV {{ slot0_lr }} R1 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
     ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ TEMP_BASE }} {{ mask_off_lr }} ;
-    SET {{ gb_ptr }} {{ GAMMA_TILE_BASE }};;
+    SET {{ gb_ptr }} {{ ZERO }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ GAMMA_TILE_BASE }} {{ slot0_lr }};;
     LD.MULT R0 {{ mask_off_lr }} {{ TEMP_BASE }};;
     MULT.RC.VV {{ slot0_lr }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
     ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ TEMP_BASE }} {{ mask_off_lr }} ;
-    SET {{ gb_ptr }} {{ BETA_TILE_BASE }};;
+    SET {{ gb_ptr }} {{ ZERO }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ BETA_TILE_BASE }} {{ slot0_lr }};;
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;;
     {#- read_ptr's advance co-issues with the load that reads it (same fix
@@ -567,7 +567,7 @@ step4a_loop:
         iteration, so there is no BLT.S to fuse it with). #}
     ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ OUTPUT_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};;
 
@@ -578,16 +578,16 @@ step6_loop:
     MULT.RC.VV {{ slot0_lr }} R1 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
     ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ TEMP_BASE }} {{ mask_off_lr }} ;
-    SET {{ gb_ptr }} {{ GAMMA_TILE_BASE }};;
+    SET {{ gb_ptr }} {{ ZERO }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ GAMMA_TILE_BASE }} {{ slot0_lr }};;
     LD.MULT R0 {{ mask_off_lr }} {{ TEMP_BASE }};;
     MULT.RC.VV {{ slot0_lr }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
     ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ TEMP_BASE }} {{ mask_off_lr }} ;
-    SET {{ gb_ptr }} {{ BETA_TILE_BASE }};;
+    SET {{ gb_ptr }} {{ ZERO }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ BETA_TILE_BASE }} {{ slot0_lr }};;
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;;
     {#- write_ptr, read_ptr, AND row_idx's advances plus BLT.S all fused
@@ -597,7 +597,7 @@ step6_loop:
         its pre-increment cycle-start value. #}
     ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ OUTPUT_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
     BLT.S {{ row_idx }} {{ row_limit }} step6_loop;;

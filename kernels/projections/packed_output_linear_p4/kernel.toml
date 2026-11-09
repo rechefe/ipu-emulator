@@ -46,9 +46,9 @@ seed1        = "CR9"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-a = { jump_back = 1, also_via = ["CR0"] }
-b = { also_via = ["CR0"] }
-y = { also_via = ["CR0"] }
+a = { jump_back = 1 }
+b = {}
+y = {}
 mask = {}
 
 [golden]

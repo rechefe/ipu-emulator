@@ -124,22 +124,22 @@ t_loop:
 g_loop:
 
     # -- key loop: s = 0..255 over the 128-query group g -----------------------
-    # P[h,g,s] row = PBASE + h*512 + 2s + g.  data ptr p_ptr = start - 2.
-    SET     {{ p_ptr }}  {{ P_BASE }};;                       # PBASE
+    # P[h,g,s] row = PBASE + h*512 + 2s + g.  p_ptr = h*512 + 2s + g - 2 (P read through its own CR, P_BASE).
+    SET     {{ p_ptr }}  {{ ZERO }};;                         # offset 0 in P
     ADD     {{ p_ptr }}  {{ p_ptr }}  {{ p_head_base }};;     # + h*512
     ADD     {{ p_ptr }}  {{ p_ptr }}  {{ p_group_off }};;     # + g  -> P[h,g,s=0]
     SUB     {{ p_ptr }}  {{ p_ptr }}  {{ key_stride }};;      # - 2 startup (ADD +2 -> live s=0)
     SET     {{ key_index }}  {{ KEY_START }};;                # key index startup = -1 (ADD +1 -> s=0)
 
     # Prime s=0's P row (the MULT below consumes it from the cycle-start value).
-    LD.MULT.CYCLIC {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.ADD.FIRST seeds R_ACC.
     MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
-    LD.MULT.CYCLIC {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT.S {{ key_index }} {{ key_last }} s_loop_pre;;
     B s_done;;
@@ -148,7 +148,7 @@ s_loop_pre:
 s_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
-    LD.MULT.CYCLIC {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT.S {{ key_index }} {{ key_last }} s_loop_pre;;
 s_done:

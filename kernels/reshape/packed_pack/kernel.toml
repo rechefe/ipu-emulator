@@ -37,8 +37,8 @@ qf          = "CR14"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = { also_via = ["CR0"] }
-y = { repetitions = 2, also_via = ["CR0"] }
+x = { overhead_rows = 1 }
+y = {}
 mask = {}
 
 [golden]

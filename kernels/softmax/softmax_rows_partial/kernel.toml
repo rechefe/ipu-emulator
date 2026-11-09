@@ -87,7 +87,7 @@ y = {}
 num = { repetitions = "2 * ceil(rows / 128) + 1", pending = "indexes num by token, past its device rows" }
 log2e = {}
 max = {}
-rvec = { repetitions = "ceil(rows / 128)", also_via = ["CR0"] }
+rvec = { repetitions = "ceil(rows / 128)" }
 
 [golden]
 op = "softmax"

@@ -105,13 +105,13 @@
 {% endmacro %}
 
 {% macro replicate_chunk() %}
-    SET {{ chunk_base }} {{ DATA_BASE }};;
+    SET {{ chunk_base }} {{ ZERO }};;
     ADD {{ chunk_base }} {{ chunk_base }} {{ chunk_ctr }};;
     SET {{ slot_lr }} {{ ZERO }};;
-    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ DATA_BASE }} {{ slot_lr }};;
     SET {{ slot3_lr }} {{ ZERO }};;
     {{- inc(slot3_lr, SLOT3) }}
-    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot3_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ DATA_BASE }} {{ slot3_lr }};;
 {% endmacro %}
 
 {% macro accumulate_chunk(first) %}
@@ -120,7 +120,7 @@
         (this weight-chunk's row 0) at the start of every packed row. #}
     ADD {{ w_row_ptr }} {{ w_ptr }} {{ ZERO }};;
     {%- for p_out in range(2) %}
-    LD.MULT R0 {{ w_row_ptr }} {{ ZERO }};;
+    LD.MULT R0 {{ w_row_ptr }} {{ WEIGHTS_BASE }};;
     SET {{ rc_idx_reg }} {{ SEED_CR[p_out] }};;
     ADD {{ k_idx }} {{ k_base }} {{ ZERO }};;
     DEC {{ k_idx }} 1;;
@@ -141,8 +141,8 @@
 
     SET {{ mask_off_lr }} {{ ZERO }};;
     LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
-    SET {{ out_ptr }} {{ OUTPUT_BASE }};;
-    SET {{ w_ptr }} {{ WEIGHTS_BASE }};;
+    SET {{ out_ptr }} {{ ZERO }};;
+    SET {{ w_ptr }} {{ ZERO }};;
     SET {{ chunk_ctr }} {{ ZERO }};;
     SET {{ k_base }} {{ ZERO }};;
 
@@ -220,7 +220,7 @@ wc_loop_continue:
 wc_loop_exit:
     {%- endif %}
 
-    ACTIVATE.EXACT {{ "identity" if activation == "none" else activation }} {{ DSTRUCT_STORE }} {{ ZERO }} {{ out_ptr }};;
+    ACTIVATE.EXACT {{ "identity" if activation == "none" else activation }} {{ DSTRUCT_STORE }} {{ OUTPUT_BASE }} {{ out_ptr }};;
 
 end:
     HALT;;
