@@ -73,9 +73,9 @@ ds_qf             = "CR15"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = { repetitions = "ceil(rows / 128) + 1", overhead_rows = "1 - min(1, 16 * ceil(n / 16) - n)" }
+x = { repetitions = "ceil(rows / 128) + 1" }
 y = {}
-num = { repetitions = "2 * ceil(rows / 128) + 1", overhead_rows = "1 - min(1, 16 * ceil(n / 16) - n)" }
+num = { repetitions = "2 * ceil(rows / 128) + 1" }
 log2e = {}
 max = {}
 rvec = {}

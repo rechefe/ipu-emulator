@@ -82,9 +82,10 @@ qf          = "CR8"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-x = { repetitions = 2, overhead_rows = "1 - min(1, device_rows - 1)" }
+# With one XMEM row there is nothing to step back to between the passes.
+x = { repetitions = "1 + min(1, device_rows - 1)" }
 y = {}
-num = { repetitions = "2 + min(1, device_rows - 1)", overhead_rows = "1 - min(1, device_rows - 1)" }
+num = { repetitions = "1 + 2 * min(1, device_rows - 1)" }
 log2e = { also_via = ["CR0"] }
 max = {}
 rvec = {}
