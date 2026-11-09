@@ -42,6 +42,7 @@ from ipu_harness.manifest import KernelManifest, check_abi
 from ipu_harness.params import CasePlan
 from ipu_harness.placement import Placement
 from ipu_harness.table_bases import check_table_bases
+from ipu_harness.table_ids import TableBinder
 from ipu_harness.tables import TableRecorder, TableReport, check, combine
 from ipu_isa.geometry import LANES
 
@@ -74,6 +75,9 @@ class StageOptions:
         fresh: The first stage is the first kernel on its model (no mask to
             keep).
         step: The chain step, which seeds each stage's kernel start.
+        binder: The table-ID binder of the run (a chain step's resident inputs
+            hint their IDs); ``None``: a fresh one. A tensor keeps its ID
+            across the stages.
     """
 
     max_cycles: int | None = None
@@ -84,6 +88,7 @@ class StageOptions:
     case: str = ""
     fresh: bool = True
     step: int = 0
+    binder: TableBinder | None = None
 
 
 @dataclass(frozen=True)
@@ -206,7 +211,7 @@ class StageContext(Protocol):
             params: Template values besides the case's parameters, derived
                 values, ``format`` and ``shapes`` (``elements_in_row``).
             abi: Names to registers, as ``[abi]`` binds them
-                (``{"x": "CR2"}``): each name is a tensor (its region base),
+                (``{"x": "CR2"}``): each name is a tensor (its table ID),
                 a parameter or a derived value. ``None``: the kernel's
                 ``[abi]``.
             ds: ``CR15.L``'s DS half (``ipu_isa.cr_halves.ds``), unless
@@ -271,6 +276,7 @@ class _Stages:
     model: ReferenceModel
     cache: AssemblyCache
     options: StageOptions
+    binder: TableBinder
     runs: list[StageRun] = field(default_factory=list)
     last: RunResult | None = None
     quit: bool = False
@@ -304,10 +310,10 @@ class _Stages:
             keep_mask=self.manifest.keeps_mask,
             fresh=self.options.fresh and not self.runs,
         )
-        # No table of its own: the kernel's [abi], offsets included (register_writes
-        # applies a tensor's [abi] offset only to the kernel's own bindings).
         own = None if abi is None else bindings
-        writes = register_writes(self.plan, self.placement, abi=own, ds=ds)
+        table_set = self.binder.bind(bindings)
+        writes = register_writes(self.plan, self.placement, abi=own, ds=ds, tables=table_set)
+        model.bind_tables(table_set.storage)
         apply(model, writes)
         recorder = TableRecorder(model) if self.options.tables else None
 
@@ -337,6 +343,7 @@ class _Stages:
                 recorder.accesses,
                 stage=f"stage{len(self.runs) + 1}",
                 abi=bindings,
+                ids=table_set.ids,
             )
         self.runs.append(
             StageRun(
@@ -405,8 +412,15 @@ def run_stages(
             wrong (see :meth:`StageContext.run_stage`).
     """
     manifest = plan.manifest
+    options = options or StageOptions()
     stages = _Stages(
-        manifest, plan, placement, model, cache or AssemblyCache(), options or StageOptions()
+        manifest,
+        plan,
+        placement,
+        model,
+        cache or AssemblyCache(),
+        options,
+        options.binder or TableBinder(plan, placement),
     )
     try:
         load_hook(manifest)(stages)

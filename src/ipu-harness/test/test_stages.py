@@ -161,14 +161,10 @@ def test_two_stages_on_one_model_give_the_expected_output(tmp_path):
     assert "stages copy.asm=" in result.describe()
 
 
-def test_a_stage_without_its_own_abi_gets_the_kernels_offsets(tmp_path, monkeypatch):
+def test_a_stage_without_its_own_abi_gets_the_kernels_table_ids(tmp_path, monkeypatch):
     from ipu_harness import stages
 
     directory = _write(tmp_path, 'def run(ctx):\n    ctx.run_stage("copy.asm")\n')
-    toml = directory / "kernel.toml"
-    toml.write_text(
-        toml.read_text().replace('y    = "CR6"', 'y    = { register = "CR6", offset = -1 }')
-    )
     seen = []
 
     def recording(*args, **kwargs):
@@ -180,7 +176,7 @@ def test_a_stage_without_its_own_abi_gets_the_kernels_offsets(tmp_path, monkeypa
     manifest = load_manifest(directory)
     result = run_kernel(manifest, _default(manifest), E4)
     assert len(seen) == 1  # the one stage
-    assert seen[0]["CR6"] == result.placement.region("y").base_row - 1
+    assert seen[0]["CR6"] == result.table_ids["y"]  # a table ID, not y's row
 
 
 def test_a_kernel_whose_files_are_symlinks_runs_its_stages(tmp_path):

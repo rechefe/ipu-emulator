@@ -73,49 +73,46 @@ Schema
 ``[abi]``
     ``<name> = "CR2"`` .. ``"CR15"``. An LR cannot be bound: LRs start as
     garbage and the program sets the ones it reads.
-    ``CR0`` and ``CR1`` are hardwired constants and cannot be bound, except that
-    a tensor pinned at a literal ``row = 0`` may bind ``CR0``: the program reads its base
-    through the hardwired 0 and nothing is written. A binding may be a table
-    with ``register`` and optional keys: a tensor's may add ``offset``,
-    ``{ register = "CR2", offset = -1 }`` for its base row plus an int (in a
-    ``unit = "bytes"`` kernel the base and the offset count bytes). A CR names
-    one table, so a kernel run refuses a binding with an offset
-    (:mod:`ipu_harness.table_bases`): the program keeps the offset in an LR.
-    Any binding may be a table with ``when`` (as a tensor's): it binds
-    only in a case where that holds; a conditional tensor's binding takes the
+    A tensor's CR holds its table ID, 0-15, never a row or an offset: the
+    harness chooses the ID at launch (:mod:`ipu_harness.table_ids`) and binds
+    it to the tensor's rows on the reference model, so a program reaches the
+    tensor as ``LD.MULT ... {{ cr.x }} LRn``, the row in the table being the
+    offset LR. It may not read the CR as a number, and a kernel run refuses a
+    binding that is not one table per tensor (:mod:`ipu_harness.table_bases`).
+    ``CR1`` is a hardwired constant and cannot be bound; ``CR0``
+    can be bound to a tensor only: that table is pinned as table 0, the program
+    reads the hardwired 0 and nothing is written, and the tensor may sit
+    anywhere. A binding may be a table with ``register`` and ``when``:
+    ``{ register = "CR2", when = "has_bias" }``; there is no ``offset`` (an
+    offset into a table is an LR). Any binding may have ``when`` (as a
+    tensor's): it binds only in a case where that holds; a conditional tensor's binding takes the
     tensor's condition. Two bindings may share a register only when their
     conditions exclude each other (``bias`` and ``not bias``; a condition with
     ``or`` excludes another only when every term of one contradicts every term
-    of the other), or when both are tensors pinned at literal rows that put the
-    same value in it (``acc`` at ``row = 8`` and ``relu = { register = "CR7",
-    offset = -12 }`` at ``row = 20``: the program reaches relu from acc's
-    base). A float
-    parameter (an element scalar) binds a CR. Every key names a parameter, a
-    tensor or a derived value, and every tensor is bound (its base row must
-    reach the program), itself or through a bound ``[derived]`` value that
-    reads its ``base()``.
+    of the other). A float parameter (an element scalar) binds a CR. Every key names a parameter, a
+    tensor or a derived value, and every tensor is bound (its table ID must
+    reach the program).
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
     in the shape grammar (E06-06). An expression may also read
     ``base(<tensor>)``, the region's base row once placed (in bytes in a
-    ``unit = "bytes"`` kernel, as a tensor's binding): such a value, and any
-    that reads it, is *placed* (:attr:`KernelManifest.placed`), known only
-    when the registers are written, so only ``[abi]`` binds it; a shape, a
-    pin or the cost cannot read it. A CR names one table, so a kernel run
-    refuses to bind such a value to a CR (``w1 = "base(weights) + 1"`` would
-    be a second CR into the region): bind the tensor and keep the offset in
-    an LR. A value that reads ``row_bytes`` (the bytes of one XMEM
+    ``unit = "bytes"`` kernel): such a value, and any that reads it, is
+    *placed* (:attr:`KernelManifest.placed`), known only when the case is
+    placed; a shape, a pin or the cost cannot read it. A CR names one table,
+    so ``[abi]`` refuses to bind such a value to a CR (``w1 = "base(weights) +
+    1"`` would be a second CR into the region): bind the tensor and keep the
+    offset in an LR. A value that reads ``row_bytes`` (the bytes of one XMEM
     row in the case's variant: 128 in NX8, 512 in FP32) or ``case_qf`` (the
-    case variant's QF half-CR, 0 in FP32) is placed too. The helpers
+    case variant's QF half-CR, 0 in FP32) is placed too, and may be bound. The helpers
     ``ds()``, ``qf()``, ``constant()`` and ``halves()``
     (:mod:`ipu_harness.expressions`) build DS, QF, MULT-constant and two-half
     CR values.
 
 ``[tables]`` (optional)
     The XMEM tables the program uses, for the compiler that assigns Cache
-    Unit banks (:mod:`ipu_harness.tables`). A table is one region reached
-    through its ``[abi]`` base CR; its rows are the region's. Keys, each an
+    Unit banks (:mod:`ipu_harness.tables`). A table is one region named by
+    its ``[abi]`` CR (the CR holds the table's ID); its rows are the region's. Keys, each an
     int or an expression over parameter and (not placed) derived values:
     ``repetitions`` (default 1): traversals of its rows, a backward jump
     larger than ``jump_back`` starting the next; ``jump_back`` (default 0):
@@ -123,11 +120,7 @@ Schema
     repetition, in rows; ``overhead_rows`` (default 0): rows past the region
     the program also reaches (a loop's last prefetch), which placement
     reserves. ``whole_run`` (bool): needed from start to end, so
-    ``repetitions`` and ``jump_back`` are not taken. ``also_via``: ``[abi]``
-    names of placed values that read ``base(<tensor>)``, or ``"CR0"``, that
-    the program also reaches the table through (reported as pending; a run
-    refuses a base-reading value bound to a CR, so no kernel has one).
-    ``pending`` (a reason): the program
+    ``repetitions`` and ``jump_back`` are not taken. ``pending`` (a reason): the program
     breaks a rule the other keys cannot say (it reaches past its region); the
     table's errors are reported as pending until a change of the program
     fixes them (a case where nothing is wrong with it warns). Once a
@@ -139,7 +132,7 @@ Schema
     that stage's own tables; a buffer one stage writes and the next reads is
     in both, with each stage's numbers (placement reserves the larger
     ``overhead_rows``). A stage reaches a tensor through the CR its
-    ``run_stage`` call names, which the run checks. No ``also_via`` there.
+    ``run_stage`` call names, which the run checks.
 
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
@@ -484,9 +477,7 @@ def load_manifest(
             path = (tensor.section, tensor.name, "fill")
             check_expression(r, tensor.fill, (*numbers, *derived), path)
     check_no_placed_reads(r, placed, tensors, kernel.cost)
-    abi, abi_offsets, abi_when = read_abi(
-        r, data.get("abi", {}), params, {*scalars, *tensors}, tensors, placed
-    )
+    abi, abi_when = read_abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors, placed)
     check_placed_conditions(r, placed, tensors, abi_when, abi)
     if kernel.tables is not None and "tables" in data:
         raise r.fail(("tables",), "tables come from [kernel] tables or [tables], not both")
@@ -502,7 +493,6 @@ def load_manifest(
         params=MappingProxyType(params),
         tensors=MappingProxyType(tensors),
         abi=abi,
-        abi_offsets=abi_offsets,
         abi_when=abi_when,
         derived=MappingProxyType(derived),
         cases=MappingProxyType({}),

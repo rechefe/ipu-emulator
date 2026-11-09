@@ -3,8 +3,8 @@
 A table is reached through the CR that holds its base, and the LR holds only the
 offset within it. These kernels used to read or store through the hardwired CR0
 with an absolute row in an LR; the tables checker found those accesses in the
-table whose rows held the row, and the manifests declared ``also_via = ["CR0"]``
-for it. Now no access goes through CR0 and no table declares a second CR.
+table whose rows held the row. Now no access goes through CR0 and every table is
+reached through its own CR, which holds its table ID.
 """
 
 from __future__ import annotations
@@ -44,6 +44,6 @@ def test_the_default_case_reaches_no_table_through_cr0(kernel):
     assert result.passed, result.describe()
     report = result.tables
     assert report is not None
-    assert [t.label for t in report.tables if t.cr == 0 or t.views] == []
+    assert [t.label for t in report.tables if t.cr == 0] == []
     assert [f.describe() for f in report.findings if f.severity == "error"] == []
     assert [f.describe() for f in report.findings if "CR0" in f.message] == []

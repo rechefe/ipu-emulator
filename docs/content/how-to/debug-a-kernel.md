@@ -91,14 +91,15 @@ largest error.
 3. Press `F8` to run one instruction word at a time. The debugger stops before
     each word runs, so the panes show the state that word reads.
 
-4. Check the scalars in CR/LR (`4`). Each region base and parameter is in the
+4. Check the scalars in CR/LR (`4`). Each region's table ID and each parameter is in the
     CR the kernel's [ABI](../reference/glossary.md) names (`[abi]` in
     `kernel.toml`). An LR that drives an address or a loop count must hold the
     value you expect.
 
 5. Check the vectors in Pipeline Registers (`1`) and the data in XMEM (`3`).
     Press `F2` in XMEM and request the region, for example `row CR3 0 128 f32`
-    for an output region whose base row is in `CR3`. Press `f` to cycle the
+    for an output region whose table ID is in `CR3` (a run that binds tables
+    reads a CR base as the table's first row; an immediate is a row). Press `f` to cycle the
     tab's format until it matches the run's mode:
 
     | Mode | XMEM and `R0`, `R1` | `MULT_RES`, `R_ACC` |

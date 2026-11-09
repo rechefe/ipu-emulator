@@ -55,7 +55,7 @@ def abi_table(manifest: KernelManifest) -> list[dict[str, Any]]:
 
     Returns:
         ``name``, ``register``, ``kind`` (``region``, ``int``, ``element
-        scalar`` or ``derived``), ``offset`` (a region's, else 0) and ``when``
+        scalar`` or ``derived``; a region's CR holds its table ID) and ``when``
         (the condition it binds under, or None).
     """
     return [
@@ -63,7 +63,6 @@ def abi_table(manifest: KernelManifest) -> list[dict[str, Any]]:
             "name": name,
             "register": register,
             "kind": _kind(manifest, name),
-            "offset": manifest.abi_offsets.get(name, 0),
             "when": str(manifest.abi_when[name]) if name in manifest.abi_when else None,
         }
         for name, register in manifest.abi.items()

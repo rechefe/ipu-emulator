@@ -162,6 +162,16 @@ class TestReadXmem:
         assert window.byte_address == 3 * xmem_row_size_bytes(state)
         assert window.byte_count == 1
 
+    def test_a_cr_names_a_table_when_a_table_set_is_bound(self):
+        state = new_state()
+        state.table_map = {2: (40, 8)}
+        state.regfile.set_cr(5, 2)  # table ID 2
+        debug = DebugSession(state)
+        window = debug.read_xmem(XmemRequest("row", "cr5", "3", 1, "hex"))
+        assert window.metadata["row"] == 43  # table 2 starts at row 40
+        flat = debug.read_xmem(XmemRequest("row", "5", "3", 1, "hex"))  # an immediate is a row
+        assert flat.metadata["row"] == 8
+
     @pytest.mark.parametrize(
         ("request_", "message"),
         [

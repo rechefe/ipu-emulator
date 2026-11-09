@@ -287,9 +287,11 @@ def resolve_xmem_address(
     if mode not in ("row", "byte"):
         raise DebugError("XMEM address mode must be 'row' or 'byte'")
 
-    effective = _resolve_address_term(state, base_token) + _resolve_address_term(
-        state, offset_token
-    )
+    base = _resolve_address_term(state, base_token)
+    table = state.table_map.get(base) if state.table_map is not None else None
+    if table is not None and base_token.lower().startswith("cr"):
+        base = table[0]  # a table set is bound: the CR holds a table ID, not a row
+    effective = base + _resolve_address_term(state, offset_token)
     if effective < 0:
         raise DebugError(f"XMEM {mode} address must be non-negative; got {effective}")
 
