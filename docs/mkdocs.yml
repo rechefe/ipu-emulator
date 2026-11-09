@@ -148,6 +148,7 @@ nav:
       - Specs:
           - IPU Top ARCH: specs/ARCH-ipu-top.md
           - Cache Unit Specification: specs/cache-unit.md
+          - CRM ARCH: specs/ARCH-crm.md
           - AaQ Stage MAS: specs/MAS-stage-aaq-str.md
           - AaQ Stage ARCH: specs/ARCH-stage-aaq-str.md
           - Accumulator Stage MAS: specs/MAS-stage-accumulator.md
