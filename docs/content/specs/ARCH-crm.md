@@ -106,12 +106,19 @@ The CRM (Cache Replacement Management) performs the following tasks:
 | `dram_base_address` | 32 | Resolution of 1KB. |
 | `table_size` | 32 | Resolution of element. |
 | `xmem_bank_list[16]` | | Ordered array of banks. |
-| `table_replacement_list[16]` |  | Ordered array of tables. For each bank in `xmem_bank_list`, it gives the table that gets the bank on release. Each entry includes a bit that tells if the table is for the same kernel or for the next kernel. |
+| `table_inherit_list[16]` |  | Ordered array of `table_inherit` structs, one for each bank in `xmem_bank_list`. |
 | `xmem_num_of_banks` | 4 | Number of banks. |
 | `external_memory_en` |  | Enables read and write to external memory: prefetch for a read and write-back. |
 | `snooping_en` |  | Enables bank release from IPU indications. |
 | `num_loops` |  | Number of times to read the table.|
 | `jump_back` |  | The number of addresses that the IPU can go back after it reads an address. Example: `read_addr = 100` and `jump_back = 10`. The IPU cannot access addresses `0`-`90`. |
+
+`table_inherit` struct:
+
+| Field | Bits | Description |
+|-------|------|-------------|
+| `table_id` |  | The table that this table inherits the bank from. |
+| `configuration` |  | The configuration that this table inherits the bank from: `self`, `previous` or `none`. |
 
 
 ### 4.3 Bank State
