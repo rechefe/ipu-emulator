@@ -330,16 +330,19 @@ operand that names a half (`CRn.L` or `CRn.H`) reads it sign-extended.
 
 ## 9. Memory Model
 
-Every XMEM access names a base `CR` and an offset `LR`:
+Every XMEM access names a base `CR` and an offset `LR`. The `CR` holds a bare
+table ID, never an offset, and any `CR` can name a table (`CR0` holds the ID `0`
+and `CR1` the ID `1`). The row address is the concatenation of the table ID
+and the offset, not a sum:
 
 ```text
-row_address = CR[base] + LR[offset]
+row_address = {table_id, offset}     // table_id = CR[base][3:0], offset = LR[offset]
 ```
 
 | Field | Bits | Meaning |
 |-------|------|---------|
-| `table_id` | 4 | Table that holds the array. |
-| `offset` | 20 | Row in the table. |
+| `table_id` | 4 | Table that holds the array. The four low bits of the base `CR`. |
+| `offset` | 20 | Row in the table. The offset `LR`. |
 
 ## 10. Execution Flow
 
@@ -430,7 +433,7 @@ The emulator's `BREAK` and `AAQ_EXACT` slots and its FP32 mode are emulator-only
 |-------|------|----------|
 | Contexts and run states | Section 10. | One program until `HALT`, with no contexts, run states or host registers. |
 | XMEM miss | Control stalls. | No stall model. |
-| Row address | `table_id` and `offset` (section 9). | A flat row number, `0`-`16383` in NX8. A base `CR` with `table_id` bits set is out of range. |
+| Row address | `table_id` and `offset` (section 9). | With a table set bound (`ReferenceModel.bind_tables`), as the spec: the base `CR` holds a table ID `0`-`15`, and the row is the table's first row plus the offset. An ID that is not bound, or an offset past the table's rows, faults F-6. With no table set bound, which is the reset state and what the conformance suite and the RTL testbenches run, the base `CR` holds a flat row number `0`-`16383` in NX8 and the row is `CR[base] + LR[offset]`. A base `CR` with `table_id` bits set is then out of range. |
 | Dynamic format | Section 8.1. | Only `sign = 1` and `num_bits = 8`. |
 | `NaN` in NX8 | Section 7.1. | No `NaN` code. |
 | Kernel start | Section 10: `R_MASK` becomes all ones; the other registers keep their values. | The emulator has no kernel start. The harness writes `R_MASK` and fills the LRs and the data registers with seeded garbage at each launch (`ipu_harness.kernel_start`). |

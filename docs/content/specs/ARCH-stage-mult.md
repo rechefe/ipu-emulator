@@ -245,12 +245,12 @@ LDR_MULT_REG dest, offset, base
 |------|------|---------|
 | `dest` | [`Imm`](../reference/isa/operand-types.md#multstagereg) | `R0` or `R1`. The register that is written. |
 | `offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
-| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Holds the table ID (`0`-`15`) of the table that is read ([IPU ARCH 9](ARCH-ipu-top.md#9-memory-model)). |
 
 #### Operation
 
 ```text
-dest = XMEM[offset + base]      // 128 elements + metadata (IPU ARCH 7.2)
+dest = XMEM[{base, offset}]      // 128 elements + metadata (IPU ARCH 7.2)
 ```
 
 #### Example
@@ -277,13 +277,13 @@ LDR_CYCLIC_MULT_REG offset, base, index
 | Name | Type | Details |
 |------|------|---------|
 | `offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
-| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Holds the table ID (`0`-`15`) of the table that is read ([IPU ARCH 9](ARCH-ipu-top.md#9-memory-model)). |
 | `index` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15` whose value is `0`, `128`, `256` or `384`. The first element of the written slot. |
 
 #### Operation
 
 ```text
-R_CYCLIC[index .. index + 127] = XMEM[offset + base]   // 128 elements + metadata (IPU ARCH 7.2)
+R_CYCLIC[index .. index + 127] = XMEM[{base, offset}]   // 128 elements + metadata (IPU ARCH 7.2)
 ```
 
 #### Example
@@ -309,12 +309,12 @@ LDR_MULT_MASK_REG offset, base
 | Name | Type | Details |
 |------|------|---------|
 | `offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
-| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Holds the table ID (`0`-`15`) of the table that is read ([IPU ARCH 9](ARCH-ipu-top.md#9-memory-model)). |
 
 #### Operation
 
 ```text
-R_MASK = XMEM[offset + base]    // 128 B = 8 x 128 bits
+R_MASK = XMEM[{base, offset}]    // 128 B = 8 x 128 bits
 ```
 
 #### Example

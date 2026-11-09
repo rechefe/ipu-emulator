@@ -139,6 +139,9 @@ The stage computes the row address of each XMEM access
 | `LD.LUT` | Read | `table_id` | `table_offset` |
 | `ACTIVATE.QUANTIZE` | Write | `table_id` | `table_offset` |
 
+The base `CR` holds a table ID, and the row address is `{table_id, offset}`
+(a concatenation, [IPU ARCH 9](ARCH-ipu-top.md#9-memory-model)).
+
 ### 3.4 Stalls
 
 The stage stalls a word until its XMEM rows are ready. A stalled word

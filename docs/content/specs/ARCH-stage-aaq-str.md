@@ -153,8 +153,8 @@ LD.LUT lut_addr table_id table_offset
 | Name | Type | Details |
 |------|------|---------|
 | `lut_addr` | `Imm` | `0`-`4`. LUT segment index: `0`-`3` = table slices, `4` = last table bits + metadata. |
-| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. The CTRL stage resolves it. |
-| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. The CTRL stage resolves it. |
+| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Holds the table ID (`0`-`15`) of the table. The CTRL stage resolves the row address `{table_id, table_offset}` ([IPU ARCH 9](ARCH-ipu-top.md#9-memory-model)). |
+| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in the table. The CTRL stage resolves it. |
 
 #### Operation
 
@@ -298,8 +298,8 @@ ACTIVATE.QUANTIZE activation_fn ds qf table_id table_offset
 | `activation_fn` | [`Imm`](../reference/isa/operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
 | `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the data structure of the 128-element vector: `valid_partitions`, `num_partitions`, `valid_elements` ([IPU ARCH 8.2](ARCH-ipu-top.md#82-data-structure-ds)). |
 | `qf` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the quantization format ([IPU ARCH 8.1](ARCH-ipu-top.md#81-quantization-format-qf)). |
-| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Store | `CR0`-`CR15`. Base row in XMEM. The CTRL stage resolves it. |
-| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | Store | `LR0`-`LR15`. Row offset in XMEM. The CTRL stage resolves it. |
+| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Store | `CR0`-`CR15`. Holds the table ID (`0`-`15`) of the table. The CTRL stage resolves the row address `{table_id, table_offset}` ([IPU ARCH 9](ARCH-ipu-top.md#9-memory-model)). |
+| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | Store | `LR0`-`LR15`. Row offset in the table. The CTRL stage resolves it. |
 
 #### Operation
 
@@ -315,7 +315,7 @@ for i in 0..127:                                            // active[i]: IPU AR
 
 aaq_out.scale            = scale                        // section 4.3.2.1
 aaq_out.dynamic_exponent = dynamic ? (fe == 2) : 0            // section 4.3.2.3
-XMEM[table_id + table_offset] = aaq_out                 // 4.3.3: store
+XMEM[{table_id, table_offset}] = aaq_out                 // 4.3.3: store
 ```
 
 #### Example
@@ -621,7 +621,7 @@ negative, so the block selects **`fe1`**.
 #### 4.3.3 Store
 
 Writes the quantized result, on `output data`, to XMEM row
-`table_id + table_offset`.
+`{table_id, table_offset}`: row `table_offset` of the table `table_id`.
 
 [IPU ARCH 7.2](ARCH-ipu-top.md#72-row-layout) defines the row layout.
 
@@ -637,4 +637,4 @@ Writes the quantized result, on `output data`, to XMEM row
 | `reciprocal` and `rsqrt` of `0` and `-0` | `inf`, or `-inf` for `-0`. | Follows the subnormal rows: `reciprocal` gives `2^127` or `-2^127`, and `rsqrt` gives `2^63.5`. |
 | LUT evaluation | The LUT implements the activation functions. | Stores the LUT bits and evaluates with exact math. |
 | Dynamic format | Any `sign` and any `num_bits >= 2 + sign`. | Only `sign = 1` and `num_bits = 8`. Other values are a configuration error. |
-| LUT load source | `input_data[31:0]`. | The first 128 bytes of the XMEM row at `table_id + table_offset`. |
+| LUT load source | `input_data[31:0]`. | The first 128 bytes of the XMEM row at `{table_id, table_offset}`: row `table_offset` of the table `table_id`. |

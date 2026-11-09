@@ -37,9 +37,11 @@ register reads: [`ACTIVATE.QUANTIZE`](instructions.md#activatequantize-activate-
   `qf` the QF half naming the NX8 output format
   ([Configuration registers](configuration-registers.md)). Both always name a
   half: a bare `CR15` is an assembler error.
-- `table_id` (a CR) and `table_offset` (an LR) give the row,
-  `CR[table_id] + LR[table_offset]`
-  ([OQ-8](../../requirements/open-questions.md#conflicts-between-existing-documents)).
+- `table_id` (a CR holding a table ID, 0-15) and `table_offset` (an LR) give
+  the row: row `LR[table_offset]` of table `CR[table_id]`
+  ([Memory access](../../requirements/memory-access.md#address)). The
+  emulator resolves the ID once a table set is bound
+  (`ReferenceModel.bind_tables`); with none bound, the CR holds a flat row.
 
 **Operation.** The instruction reads the forwarded `R_ACC` (this word's ACC
 result, [timing model](../../explanation/timing-model.md#rule-3)) and leaves it
@@ -94,8 +96,8 @@ state = IpuState(aaq=AaqOptions(generic=lambda x: x / (1 + abs(x))))
 
 **Syntax:** `LD.LUT lut_addr table_id table_offset`.
 
-`LD.LUT` copies the first 128 bytes (1024 bits) of row
-`CR[table_id] + LR[table_offset]` into LUT segment `lut_addr` (0–4; 5–7 are
+`LD.LUT` copies the first 128 bytes (1024 bits) of
+row `LR[table_offset]` of table `CR[table_id]` into LUT segment `lut_addr` (0–4; 5–7 are
 reserved). Segments 0–3 hold table bits; segment 4 holds the last 256 table
 bits and the 46-bit LUT metadata (`max_exp_num`, `neg_c`, `pos_c`,
 `range_mode`, `neg_mode`, `pos_mode`). It reads no row metadata and scales
@@ -124,7 +126,7 @@ assert len(rows) == 5 and all(len(row) == 128 for row in rows)
 `ACTIVATE.EXACT` applies the exact Python activation (`apply_activation` in
 `src/ipu-emu/src/ipu_emu/activations.py`) to the active elements of the
 forwarded `R_ACC` and stores the row as 128 FP32 values at
-`CR[table_id] + LR[table_offset]`, inactive lanes 0. It has the 13 functions
+row `LR[table_offset]` of table `CR[table_id]`, inactive lanes 0. It has the 13 functions
 of the `ActivationFn` operand (`ACTIVATION_FN_NAMES`): `identity`, `relu`,
 `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`,
 `rsqrt`, `silu` and `window`. Unlike `ACTIVATE.QUANTIZE`, `rsqrt` of an input

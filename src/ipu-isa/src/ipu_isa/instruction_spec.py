@@ -247,12 +247,12 @@ INSTRUCTION_SPEC = {
                 summary="Load data from memory into a multiplication stage register.",
                 operands=[
                     "`dest`: **`R0`** | **`R1`** — mult-stage register to load (2-bit field; only these encodings are valid).",
-                    "`offset`: **`LR0`**…**`LR15`** — offset register, in XMEM rows.",
-                    "`base`: **`CR0`**…**`CR15`** — base address register, in XMEM rows.",
+                    "`offset`: **`LR0`**…**`LR15`** — offset register: the row in the table, counted in XMEM rows.",
+                    "`base`: **`CR0`**…**`CR15`** — holds the table ID (0–15) of the table that is read. Any CR can name a table.",
                 ],
                 operation=(
-                    "dest = Memory[row(offset + base)]  # one row = 128 elements: 128 B in NX8 mode, 512 B in FP32 mode\n"
-                    "dest.metadata = Metadata[row(offset + base)]  # NX8: scale, dynamic_exponent; FP32: 0"
+                    "dest = Memory[row(base, offset)]  # one row = 128 elements: 128 B in NX8 mode, 512 B in FP32 mode\n"
+                    "dest.metadata = Metadata[row(base, offset)]  # NX8: scale, dynamic_exponent; FP32: 0"
                 ),
                 example="SET LR0 CR1;;\nLD.MULT R0 LR0 CR0;;",
             ),
@@ -269,13 +269,13 @@ INSTRUCTION_SPEC = {
                 title="Load Cyclic Register",
                 summary="Load with cyclic addressing into R_CYCLIC.",
                 operands=[
-                    "offset: Offset register (LR0–LR15), in XMEM rows.",
-                    "base: Base address register (CR0–CR15), in XMEM rows.",
+                    "offset: Offset register (LR0–LR15): the row in the table, counted in XMEM rows.",
+                    "base: Table ID register (CR0–CR15): holds the table ID (0–15) of the table that is read.",
                     "index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries, counted in **elements**. Any other value raises an error. All four are valid in **both** modes: R_CYCLIC is a 512-element ring in NX8 and FP32 mode alike, and a load always replaces one whole 128-element slot and its metadata.",
                 ],
                 operation=(
-                    "R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}\n"
-                    "R_CYCLIC.metadata[index / 128] = Metadata[row(offset + base)]  # NX8; 0 in FP32 mode"
+                    "R_CYCLIC[index .. index+127] = Memory[row(base, offset)]   # index ∈ {0, 128, 256, 384}\n"
+                    "R_CYCLIC.metadata[index / 128] = Metadata[row(base, offset)]  # NX8; 0 in FP32 mode"
                 ),
             ),
             "implicit_writes": [{"register": "r_cyclic"}, {"register": "r_cyclic_meta"}],
@@ -290,10 +290,10 @@ INSTRUCTION_SPEC = {
                 title="Load Mask Register",
                 summary="Load mask data from memory.",
                 operands=[
-                    "offset: Offset register (LR0–LR15), in XMEM rows.",
-                    "base: Base address register (CR0–CR15), in XMEM rows.",
+                    "offset: Offset register (LR0–LR15): the row in the table, counted in XMEM rows.",
+                    "base: Table ID register (CR0–CR15): holds the table ID (0–15) of the table that is read.",
                 ],
-                operation="R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width",
+                operation="R_MASK = Memory[row(base, offset) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width",
             ),
             "implicit_writes": [{"register": "r_mask"}],
             "execute_fn": "execute_ld_mask",
@@ -1065,11 +1065,11 @@ INSTRUCTION_SPEC = {
                 ),
                 operands=[
                     "lut_addr: immediate segment index 0–4 (3-bit field; 5–7 are reserved)",
-                    "table_id: CR0–CR15 holding the base row",
-                    "table_offset: LR0–LR15 holding the row offset (the row is CR[table_id] + LR[table_offset])",
+                    "table_id: CR0–CR15 holding the table ID (0–15) of the table that is read",
+                    "table_offset: LR0–LR15 holding the row offset in the table (the row is row LR[table_offset] of table CR[table_id])",
                 ],
                 operation=(
-                    "row = CR[table_id] + LR[table_offset]\n"
+                    "row = row LR[table_offset] of table CR[table_id]\n"
                     "LUT.segment[lut_addr] = Memory[row][0 .. 127]  # 1024 bits, both modes"
                 ),
                 example="LD.LUT 0 CR4 LR0;;",
@@ -1096,7 +1096,7 @@ INSTRUCTION_SPEC = {
                     "Activate the forwarded R_ACC (this cycle's ACC result), quantize the active "
                     "elements to one NX8 row in the format the QF half `qf` names, and store the "
                     "128-byte row and its metadata (scale, dynamic exponent) at XMEM row "
-                    "CR[table_id] + LR[table_offset]. Inactive elements are written 0. In FP32 mode "
+                    "LR[table_offset] of table CR[table_id]. Inactive elements are written 0. In FP32 mode "
                     "the activated row is stored as 512 bytes of FP32, inactive lanes 0, and `qf` is "
                     "ignored. R_ACC is not modified."
                 ),
@@ -1104,15 +1104,15 @@ INSTRUCTION_SPEC = {
                     "activation_fn: identity, relu, relu6, reciprocal, rsqrt, exp2 or generic (3-bit ARCH encoding)",
                     "ds: CR0.L–CR15.H, the DS half naming the active elements",
                     "qf: CR0.L–CR15.H, the QF half naming the NX8 output format",
-                    "table_id: CR0–CR15 holding the base row",
-                    "table_offset: LR0–LR15 holding the row offset",
+                    "table_id: CR0–CR15 holding the table ID (0–15) of the table that is written",
+                    "table_offset: LR0–LR15 holding the row offset in the table",
                 ],
                 operation=(
                     "y[i] = activation(R_ACC[i]) for the active elements i of DS[ds]\n"
                     "NX8: (bytes, scale, dynamic_exponent) = quantize(y, QF[qf])  # ARCH-stage-aaq-str §4.3.2\n"
                     "     Memory[row] = bytes; Metadata[row] = (scale, dynamic_exponent)\n"
                     "FP32: Memory[row] = y as 128 FP32 (inactive lanes 0)\n"
-                    "where row = CR[table_id] + LR[table_offset]"
+                    "where row = row LR[table_offset] of table CR[table_id]"
                 ),
                 example="ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR0;;",
                 notes=(
@@ -1158,18 +1158,18 @@ INSTRUCTION_SPEC = {
                 summary=(
                     "Emulator-only. Apply the exact Python activation to the active elements of the "
                     "forwarded R_ACC and store the row as 128 FP32 values (512 bytes) at XMEM row "
-                    "CR[table_id] + LR[table_offset]; inactive lanes are written 0. Valid in FP32 mode "
+                    "LR[table_offset] of table CR[table_id]; inactive lanes are written 0. Valid in FP32 mode "
                     "only: a program that uses it is rejected when loaded into an NX8-mode IPU. "
                     "R_ACC is not modified."
                 ),
                 operands=[
                     "activation_fn: one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2, reciprocal, rsqrt, silu, window (see ACTIVATION_FN_NAMES)",
                     "ds: CR0.L–CR15.H, the DS half naming the active elements",
-                    "table_id: CR0–CR15 holding the base row",
-                    "table_offset: LR0–LR15 holding the row offset",
+                    "table_id: CR0–CR15 holding the table ID (0–15) of the table that is written",
+                    "table_offset: LR0–LR15 holding the row offset in the table",
                 ],
                 operation=(
-                    "row = CR[table_id] + LR[table_offset]\n"
+                    "row = row LR[table_offset] of table CR[table_id]\n"
                     "Memory[row] = activation(R_ACC[i]) as FP32 for active i, 0 for inactive i\n"
                     "rsqrt(x) = 0 for x <= 0; window(x) = 1 for a <= x < b, else 0. α for elu and "
                     "the window bounds are emulator settings (docs/content/reference/isa/activate-quantize.md)."
