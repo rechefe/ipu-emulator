@@ -84,6 +84,13 @@ lr4_start         = "LR4"
 lr5_start         = "LR5"
 ds_qf             = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { jump_back = 1, pending = "repetitions not derived as a formula of the parameters" }
+w = { repetitions = "height" }
+y = {}
+mask = {}
+
 [golden]
 op = "conv2d"                          # x, w [out, in, 3, 3]; no bias, no ReLU
 # Measured on the harness's seeded data: max |err| 1.4e-6 (c3x4; 3.6e-7 on the

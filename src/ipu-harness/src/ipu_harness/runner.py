@@ -46,6 +46,7 @@ from ipu_harness.params import CasePlan, plan_case
 from ipu_harness.placement import Placement, place
 from ipu_harness.reference import evaluate, load_reference
 from ipu_harness.stages import StageOptions, StagesRun, run_stages
+from ipu_harness.tables import TableRecorder, TableReport, check, overhead_rows
 from ipu_harness.variants import Variant, as_variant
 from ipu_isa.codec.word import word_bytes
 from ipu_isa.faults import FaultId
@@ -86,6 +87,10 @@ class RunOptions:
             that steps the model itself (the Inspector's curated traces)
             gets the :class:`RunContext`. The runner then reads the status
             and the cycles from the model. Not with ``debug`` or ``trace``.
+        tables: Record the run's XMEM accesses and hold them to the kernel's
+            ``[tables]`` (``--tables``, :mod:`ipu_harness.tables`): the
+            result's ``tables``. A multi-stage kernel's stages each against
+            their own ``[tables.stage<N>]``.
     """
 
     max_cycles: int | None = None
@@ -95,6 +100,7 @@ class RunOptions:
     debug: DebugLaunch | None = None
     alias_profile: bool = False
     executor: Executor | None = None
+    tables: bool = False
 
     def __post_init__(self) -> None:
         if self.debug is not None and self.trace is not None:
@@ -215,6 +221,9 @@ class RunResult:
         stats: The model's run statistics (reference-model API 1.1.0): busy
             slots, lanes and MACs, as the benchmark reports them (E06-11);
             for a multi-stage kernel its stages' summed (E07-19).
+        tables: The run's tables and the findings against their
+            declarations, when ``RunOptions.tables`` asked; ``passed`` does
+            not read them.
     """
 
     kernel: str
@@ -232,6 +241,7 @@ class RunResult:
     stages: tuple[tuple[str, int], ...] = ()
     placement: Placement | None = None
     stats: Stats | None = None
+    tables: TableReport | None = None
 
     @property
     def passed(self) -> bool:
@@ -415,6 +425,7 @@ def _execute_stages(
             debug=debug.hook(manifest.name) if debug is not None else None,
             break_on_entry=debug.break_on_entry if debug is not None else False,
             trace=options.trace,
+            tables=options.tables,
         ),
     )
     return staged.result, profile, staged
@@ -506,6 +517,7 @@ def _prepare(
         pins=None if shared is None else {**shared.pinned, **shared.placed},
         reserved=None if shared is None else shared.reserved,
         avoid=() if shared is None else shared.avoid,
+        overhead=overhead_rows(plan),
     )
     return plan, values, placement
 
@@ -573,6 +585,7 @@ class _Ran:
     rendered: str
     stages: tuple[tuple[str, int], ...] = ()
     stats: Stats | None = None
+    tables: TableReport | None = None
 
 
 def _run_program(
@@ -589,7 +602,13 @@ def _run_program(
     limit = DEFAULT_CYCLE_LIMIT if options.max_cycles is None else options.max_cycles
     header = _trace_header(program.words, fmt)
     context = RunContext(model, program, fmt, staged.plan, staged.placement, header, limit)
+    recorder = TableRecorder(model) if options.tables else None
     run, profile = _execute(context, manifest, case, fmt, options)
+    tables = None
+    if recorder is not None:
+        recorder.stop()
+        launch = {w.index: w.value for w in staged.writes if w.bank == "cr"}
+        tables = check(staged.plan, staged.placement, launch, recorder.accesses)
     stats = model.stats()
     cycles = run.cycles if run is not None else stats.cycles
     return _Ran(
@@ -603,6 +622,7 @@ def _run_program(
         stats.effective_mac_utilization,
         program.rendered,
         stats=stats,
+        tables=tables,
     )
 
 
@@ -633,6 +653,7 @@ def _run_staged_kernel(
         staged.stages[-1].rendered,
         tuple((s.program, s.cycles) for s in staged.stages),
         staged.stats,
+        staged.tables,
     )
 
 
@@ -736,4 +757,5 @@ def run_kernel(
         stages=ran.stages,
         placement=placement,
         stats=ran.stats,
+        tables=ran.tables,
     )

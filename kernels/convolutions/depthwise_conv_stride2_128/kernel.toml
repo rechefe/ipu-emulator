@@ -100,6 +100,17 @@ half_slot   = "CR13"
 walk_step   = "CR14"
 dstructure  = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables.stage1]
+x = { jump_back = "1 - min(1, groups - 2)", overhead_rows = 1, pending = "repetitions not derived as a formula of the parameters" }
+filters = { repetitions = "rows" }
+border_mask = {}
+y = {}
+
+[tables.stage2]
+out = {}
+y = { repetitions = "num_row_pairs * (in_channels - 1) + 1" }
+
 [golden]
 reference = "reference.py:reference"
 # Measured on the harness's seeded data: max |err| 4.8e-7 over the three

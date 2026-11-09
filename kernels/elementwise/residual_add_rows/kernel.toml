@@ -49,6 +49,12 @@ b          = "CR9"
 one        = "CR10"
 qf         = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+a = { overhead_rows = 1 }
+b = {}
+y = {}
+
 [golden]
 op = "residual_add"
 tolerance = { fp32 = "EXACT" }      # one FP32 add, rounded once: as the reference rounds it

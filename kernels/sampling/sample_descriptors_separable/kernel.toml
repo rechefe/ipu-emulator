@@ -67,6 +67,14 @@ lanes   = "CR12"
 two_w   = "CR13"
 qf      = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { pending = "repetitions not derived as a formula of the parameters" }
+y = { pending = "repetitions not derived as a formula of the parameters" }
+ky = {}
+kx = { repetitions = "8 * band" }
+t = { repetitions = "2 * band", jump_back = 3 }
+
 [golden]
 op = "sample_descriptors"
 # Measured over the cases: max|err| 1.2e-7 at amplitude 1, 1.5e-5 at

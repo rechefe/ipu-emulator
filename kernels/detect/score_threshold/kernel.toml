@@ -57,6 +57,15 @@ rows      = "CR9"
 slot1     = "CR10"
 qf        = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = {}
+y = { also_via = ["count_row"] }
+staged = { repetitions = "ceil(rows / 2)" }
+tau = {}
+ttau = {}
+tvec = {}
+
 [golden]
 op = "score_threshold"
 # Measured: max|err| = 0 on all three cases. The count is an FP32 reduction in

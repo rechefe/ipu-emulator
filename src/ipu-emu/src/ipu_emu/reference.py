@@ -50,6 +50,8 @@ from ipu_emu.run_clock import RunClock as _RunClock
 from ipu_emu.run_control import RunControl
 from ipu_emu.trace import TraceWriter, read_trace
 from ipu_emu.trace import trace_header as _trace_header
+from ipu_emu.xmem_access import XmemAccess
+from ipu_emu.xmem_access import XmemAccessObserver as _XmemAccessObserver
 from ipu_isa.codec.word import DecodedWord, unpack_program, word_bytes
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
 from ipu_isa.faults import ArithmeticEvent, FaultId
@@ -65,11 +67,12 @@ __all__ = [
     "Stats",
     "Status",
     "TraceWriter",
+    "XmemAccess",
     "read_trace",
 ]
 
 #: The version of this API (Q11).
-API_VERSION = "2.0.0"
+API_VERSION = "2.1.0"
 
 
 class RunState(str, enum.Enum):
@@ -371,6 +374,21 @@ class ReferenceModel:
                 callback(address, size)
 
         detach: Callable[[], None] = self._state.xmem.add_observer(observe)
+        return detach
+
+    def observe_xmem_accesses(self, callback: Callable[[XmemAccess], None]) -> Callable[[], None]:
+        """Report every XMEM row the program reads or writes (2.1.0), with the
+        registers that addressed it: ``callback(access)`` with an
+        :class:`~ipu_emu.xmem_access.XmemAccess` (the base CR and the offset
+        LR, their numbers and values), as each op issues, so an access that
+        faults F-6 is reported too. Unlike :meth:`observe_xmem_reads`, it
+        names the table an access belongs to (its base CR) and the row within
+        it (the offset). Host accesses are not reported.
+
+        Returns:
+            A function that stops the reports.
+        """
+        detach: Callable[[], None] = self._state.add_cycle_observer(_XmemAccessObserver(callback))
         return detach
 
     def step(self) -> CommitRecord:

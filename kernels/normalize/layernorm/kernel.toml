@@ -73,6 +73,24 @@ row_stride = "CR13"
 lanes      = "CR14"
 ds_qf      = "CR15"
 
+# The XMEM tables (ipu_harness.tables). Per token group (ceil(tokens / 128)):
+# x is read twice (mean, then centring), each walk's last prefetch reading
+# one group stride past it; gamma, beta and y once; centered is written and
+# re-read over four passes, each row stored a word after the next is loaded
+# (one row back), its walks prefetching one row past it.
+[tables]
+x         = { repetitions = "2 * ceil(tokens / 128)", overhead_rows = "ceil(tokens / 128)" }
+gamma     = { repetitions = "ceil(tokens / 128)" }
+beta      = { repetitions = "ceil(tokens / 128)" }
+y         = { repetitions = "ceil(tokens / 128)" }
+centered  = { repetitions = "4 * ceil(tokens / 128)", jump_back = 1, overhead_rows = 1 }
+ones      = {}
+neg_inv_n = {}
+inv_n     = {}
+neg_mean  = {}
+temp      = {}
+invstd    = {}
+
 [golden]
 op = "layernorm"                          # ipu_kernels.reference.ops.layernorm: no eps (Q57)
 tolerance = { fp32 = "FP32_LONG" }        # the rsqrt chain; FP32_ORDER also passes the 4 entries' data

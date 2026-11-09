@@ -45,6 +45,11 @@ height      = "CR7"
 channels    = "CR8"
 qf          = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { pending = "repetitions not derived as a formula of the parameters" }
+y = {}
+
 [golden]
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }

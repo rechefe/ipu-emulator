@@ -58,6 +58,12 @@ stream_count    = "CR14"
 rc_slot0        = "LR1"
 ds_qf           = "CR15"                           # no CR is free for the QF: it shares CR15 with the DS
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+b = { repetitions = "8 * n_out", also_via = ["CR0"] }
+a = { repetitions = "2 * (n_out + 1)", jump_back = 1, also_via = ["CR0"] }
+y = { repetitions = "4 * ceil((out_stream_str - 2) / 2) + 1", also_via = ["CR0"] }
+
 [golden]
 op = "linear"                                      # activation(a @ b), ipu_kernels.reference.ops
 tolerance = { fp32 = "FP32_LONG" }

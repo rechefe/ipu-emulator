@@ -35,6 +35,12 @@ mask        = "CR6"
 dstruct_row = "CR7"
 qf          = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { also_via = ["CR0"] }
+y = { repetitions = 2, also_via = ["CR0"] }
+mask = {}
+
 [golden]
 reference = "reference.py:reference"       # a layout change only
 tolerance = { fp32 = "EXACT" }

@@ -36,6 +36,7 @@ import ipu_emu.commit
 import ipu_emu.errors
 import ipu_emu.reference
 import ipu_emu.trace
+import ipu_emu.xmem_access
 import ipu_isa.faults
 import ipu_isa.formats
 import ipu_isa.trace_schema
@@ -100,6 +101,11 @@ def groups() -> tuple[Group, ...]:
             "Traces",
             "`ipu_emu.trace`: the writer `run()` takes, and its reader.",
             _public(ipu_emu.trace),
+        ),
+        Group(
+            "XMEM accesses",
+            "`ipu_emu.xmem_access`: what `observe_xmem_accesses()` hands its callback.",
+            _public(ipu_emu.xmem_access, "XmemAccess"),
         ),
         Group(
             "Schema helpers",

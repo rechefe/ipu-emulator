@@ -79,6 +79,13 @@ sb_rows     = "CR13"
 walk_step   = "CR14"
 dstructure  = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { overhead_rows = "in_channels", pending = "repetitions not derived as a formula of the parameters" }
+filters = { repetitions = "num_chunks" }
+y = {}
+border_mask = {}
+
 [golden]
 reference = "reference.py:reference"   # filters split, then the shared conv2d
 # y is an element output: compared in FP32. Measured on the harness's seeded

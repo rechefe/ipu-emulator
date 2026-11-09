@@ -63,6 +63,12 @@ dst_row    = "LR8"
 channel    = "LR10"
 qf         = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { repetitions = 1160, also_via = ["x1", "x2", "x3"] }
+y = {}
+ones = {}
+
 [golden]
 op = "fold"
 tolerance = { fp32 = "EXACT" }

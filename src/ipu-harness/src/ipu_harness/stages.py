@@ -40,6 +40,7 @@ from ipu_harness.debug import DebugHook, debug_run
 from ipu_harness.manifest import KernelManifest, check_abi
 from ipu_harness.params import CasePlan
 from ipu_harness.placement import Placement
+from ipu_harness.tables import TableRecorder, TableReport, check, combine
 from ipu_isa.geometry import LANES
 
 __all__ = [
@@ -65,12 +66,15 @@ class StageOptions:
         break_on_entry: With ``debug``, stop each stage before its first word.
         trace: Where each stage writes its trace, as ``<stem>.<i>.jsonl``
             beside this path (one trace per program), or ``None``.
+        tables: Record each stage's XMEM accesses and hold them to the
+            kernel's ``[tables.stage<N>]`` (:mod:`ipu_harness.tables`).
     """
 
     max_cycles: int | None = None
     debug: DebugHook | None = None
     break_on_entry: bool = False
     trace: Path | None = None
+    tables: bool = False
 
 
 @dataclass(frozen=True)
@@ -86,6 +90,8 @@ class StageRun:
         rendered: The program's rendered text, for a fault report.
         stats: The model's statistics for the stage alone (``load_program``
             clears them), or ``None`` (a hand-made record).
+        tables: Its tables against the kernel's declarations, when
+            ``StageOptions.tables`` asked.
     """
 
     program: str
@@ -94,6 +100,7 @@ class StageRun:
     mult_identity_lane_ops: int
     rendered: str
     stats: Stats | None = None
+    tables: TableReport | None = None
 
 
 @dataclass(frozen=True)
@@ -105,15 +112,23 @@ class StagesRun:
             ``result`` is a fault.
         result: The last stage's run (its status ends the kernel's run);
             ``None`` when the user quit the debugger in a stage.
+        plan: The case, for the tables report.
     """
 
     stages: tuple[StageRun, ...]
     result: RunResult | None
+    plan: CasePlan | None = None
 
     @property
     def cycles(self) -> int:
         """The words every stage retired."""
         return sum(stage.cycles for stage in self.stages)
+
+    @property
+    def tables(self) -> TableReport | None:
+        """Every stage's tables as one report (``None``: not recorded)."""
+        reports = [(f"stage{i}", s.tables) for i, s in enumerate(self.stages, 1) if s.tables]
+        return combine(self.plan, reports) if reports and self.plan is not None else None
 
     @property
     def mac_utilization(self) -> float:
@@ -271,7 +286,9 @@ class _Stages:
         # No table of its own: the kernel's [abi], offsets included (register_writes
         # applies a tensor's [abi] offset only to the kernel's own bindings).
         own = None if abi is None else bindings
-        apply(model, register_writes(self.plan, self.placement, abi=own, ds=ds))
+        writes = register_writes(self.plan, self.placement, abi=own, ds=ds)
+        apply(model, writes)
+        recorder = TableRecorder(model) if self.options.tables else None
 
         options = self.options
         limit = options.max_cycles if max_cycles is None else max_cycles
@@ -288,6 +305,18 @@ class _Stages:
         else:
             result = model.run(limit)
         stats = model.stats()
+        tables = None
+        if recorder is not None:
+            recorder.stop()
+            launch = {w.index: w.value for w in writes if w.bank == "cr"}
+            tables = check(
+                self.plan,
+                self.placement,
+                launch,
+                recorder.accesses,
+                stage=f"stage{len(self.runs) + 1}",
+                abi=bindings,
+            )
         self.runs.append(
             StageRun(
                 program,
@@ -296,6 +325,7 @@ class _Stages:
                 stats.mult_identity_lane_ops,
                 assembled.rendered,
                 stats,
+                tables,
             )
         )
         self.last = result
@@ -363,7 +393,7 @@ def run_stages(
         pass
     if not stages.runs:
         raise ConfigurationError(f"{manifest.name}: the stages hook ran no stage")
-    return StagesRun(tuple(stages.runs), stages.last)
+    return StagesRun(tuple(stages.runs), stages.last, plan)
 
 
 @dataclass

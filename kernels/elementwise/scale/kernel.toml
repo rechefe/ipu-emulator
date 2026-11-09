@@ -22,6 +22,10 @@ rows = "CR4"
 s    = "CR5"
 qf   = "CR6"
 
+[tables]                                  # each region the program reaches, through its [abi] CR
+x = {}                                    # read once, in order
+y = {}                                    # written once, in order
+
 [golden]
 reference = "reference.py:reference"
 tolerance = { fp32 = "EXACT" }

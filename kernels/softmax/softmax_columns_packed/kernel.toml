@@ -80,6 +80,17 @@ rpv         = "CR14"
 qf          = "CR8"
 # CR15.L: the default DS (128 valid elements).
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+# With one XMEM row there is nothing to step back to between the passes.
+x = { repetitions = "1 + min(1, device_rows - 1)" }
+y = {}
+num = { repetitions = "1 + 2 * min(1, device_rows - 1)" }
+log2e = { also_via = ["CR0"] }
+max = {}
+rvec = {}
+fold = {}
+
 [golden]
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }

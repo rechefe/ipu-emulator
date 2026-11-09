@@ -61,6 +61,14 @@ tail_bound = "LR11"
 w_stride   = "LR12"
 qf         = "CR14"  # the MULT QF half: CR14.L
 
+# The XMEM tables (ipu_harness.tables): b is walked once per output channel,
+# and each walk's last prefetch reads one data stride past it. a is read once
+# in order: chunk 0 through CR9, chunk 1 through w1 (pending: one table, one CR).
+[tables]
+b = { repetitions = "n", overhead_rows = "n_tg" }
+a = { also_via = ["w1"] }
+y = {}
+
 [golden]
 op = "linear"                                    # activation(a @ b), ipu_kernels.reference.ops
 tolerance = { fp32 = "FP32_LONG" }

@@ -234,6 +234,18 @@ py_pytest_test(
     ],
 )
 
+# Every XMEM instruction names its base CR and offset LR to the access observer.
+py_pytest_test(
+    name = "test_xmem_access",
+    size = "small",
+    srcs = ["test/test_xmem_access.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
 # A cycle observer counts the same ops in faithful and prototyping mode (E04-11).
 py_pytest_test(
     name = "test_observer_counts",

@@ -61,6 +61,12 @@ tail_bound = "LR11"
 w_stride   = "LR12"
 qf         = "CR14"  # the MULT QF half: CR14.L
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+b = { repetitions = "n", overhead_rows = 1 }
+a = { also_via = ["w1"] }
+y = {}
+
 [golden]
 op = "linear"                                    # activation(a @ b), ipu_kernels.reference.ops
 tolerance = { fp32 = "FP32_LONG" }

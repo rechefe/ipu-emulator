@@ -71,6 +71,13 @@ no_step    = { register = "CR13", when = "not stock" }
 cell_step  = { register = "CR13", when = "stock" }
 qf         = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { pending = "repetitions not derived as a formula of the parameters" }
+y = { repetitions = "tap_delta - 1" }
+k = { pending = "repetitions not derived as a formula of the parameters" }
+k_cells = { pending = "repetitions not derived as a formula of the parameters" }
+
 [golden]
 op = "sample_descriptors"
 # Measured: max|err| 1.2e-7 (default, stock), 0 (single cells): nine FP32

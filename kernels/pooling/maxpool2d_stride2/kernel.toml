@@ -51,6 +51,12 @@ lanes      = "CR10"
 plane      = "CR11"
 qf         = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { jump_back = "in_tiles - 1" }
+y = {}
+stage = { jump_back = 1 }
+
 [golden]
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }

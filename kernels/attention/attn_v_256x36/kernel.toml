@@ -52,6 +52,12 @@ out_chan_stride = "CR13"
 qf = "CR14"
 # CR15 unbound -> default DS (CR15.L: valid_elements = 128), as the recorded cases ran
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+b = { repetitions = 429, jump_back = 1, overhead_rows = 2 }
+a = { jump_back = 1 }
+y = {}
+
 [golden]
 op = "matmul_nt"                        # y = a @ b^T: V @ P^T, P query-major
 tolerance = { fp32 = "FP32_ORDER" }    # the old check: rtol=1e-6, atol=1e-6 vs agg_fold.

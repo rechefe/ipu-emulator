@@ -67,6 +67,17 @@ cpr               = "CR13"
 qf                = "CR14"
 # CR15.L: the default DS (128 valid elements).
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+# With one row the passes find nothing to step back over inside a pass: only
+# the move to the next pass (and, from chunk to chunk, the forward walk) counts.
+x = { repetitions = "min(1, rows - 1) * 2 * cpr + (1 - min(1, rows - 1)) * min(cpr, 2)" }
+y = { repetitions = "1 + (cpr - 1) * min(1, rows - 1)" }
+num = { repetitions = "min(1, rows - 1) * 3 * cpr + (1 - min(1, rows - 1)) * (1 + 2 * min(1, cpr - 1))" }
+log2e = {}
+max = { repetitions = 2 }
+rvec = { repetitions = 2 }
+
 [golden]
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }
