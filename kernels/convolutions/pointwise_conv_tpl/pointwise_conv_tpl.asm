@@ -67,11 +67,10 @@
       pass), LR11 row_groups, LR12 weight row offset, LR13 the next pass's
       input base, LR14 scratch (the streaming load address), LR15 the pass's
       pipeline bound.
-    - LR0 and LR7 are read before they are written: LR0 is only ever
-      advanced (by in_channels per row group), and the first word's LD.MASK
-      and ADD LR5 read LR7 in the word whose SET writes it. Both started at
-      the reset value 0, so [abi] binds them to 0 (input_row_base,
-      cyclic_s0): a run after another kernel starts from the same state.
+    - Every LR is set before it is read. LR0 (only ever advanced, by
+      in_channels per row group) is set to 0 beside LR1's SET; LR5 is set from
+      its constant (CR12 / CR1) in the first word, which also sets LR7: an
+      ADD LR5 LR7 there would read LR7's value from before the word.
 
     Supported configurations: width 1..128, any height >= 1 (padded),
     in_channels a multiple of 8, out_channels a multiple of 4.
@@ -86,9 +85,9 @@
     SET                 LR7 CR0;
     LD.MASK   LR7 {{ cr.mask }};
 {%- if seeded %}
-    ADD                 LR5 LR7 {{ cr.fixed_idx_step }};;  # LR5 = 128 (MULT.EE ra_idx, Half B bias)
+    SET                 LR5 {{ cr.fixed_idx_step }};;  # LR5 = 128 (MULT.EE ra_idx, Half B bias)
 {%- else %}
-    ADD                 LR5 LR7 CR1;;  # LR5 = 1 (output row stride)
+    SET                 LR5 CR1;;  # LR5 = 1 (output row stride)
 {%- endif %}
 
     ADD                 LR6 LR7 {{ cr.fixed_idx_step }};;  # LR6 = 128 (R_CYCLIC ELEMENT index)
@@ -98,7 +97,8 @@
 
     ADD                 LR11 LR7 {{ cr.row_groups }};;  # LR11 = row_groups
 
-    SET                 LR1 CR0;;
+    SET                 LR1 CR0;
+    SET                 LR0 CR0;;  # LR0 = input row-group base (advanced by in_channels per row group)
     SUB                 LR1 LR1 CR1;;  # LR1 = -1 row (pre-offset)
 
     SET                 LR2 CR0;;  # LR2 = row-group counter

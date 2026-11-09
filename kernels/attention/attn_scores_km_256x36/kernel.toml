@@ -17,15 +17,8 @@ seed = { type = "int", default = 0xD00 }   # the old RandomState seed (0xD00); g
 q_start_g0 = "-2"        # CR5: -Q_CHAN_ROWS
 q_start_g1 = "-1"        # CR6: -Q_CHAN_ROWS + 1
 chan_start = "-1"        # CR7
-chan_bound_unread = "d - 2" # CR8: written, never read
-rc_slot0 = "0"           # LR0
-q_chan_stride = "n_tok / 128" # LR2: 2
-out_stride = "1"         # LR3
-chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
-out_ptr = "0"            # LR7
-key_ptr = "-1"           # LR8
-key_index = "0"          # LR9
-key_stride = "1"         # LR12
+chan_last = "d - 1"     # CR8: the contraction bound (BLT.S sees the already-stepped index)
+q_chan_stride = "n_tok / 128" # CR11: 2 rows between Q channels
 qf = "case_qf"           # the case's QF half (0: FP32 ignores it)
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
@@ -49,19 +42,11 @@ y = "CR2"        # S_BASE
 q_start_g0 = "CR5"
 q_start_g1 = "CR6"
 chan_start = "CR7"
-chan_bound_unread = "CR8"
-rc_slot0 = "LR0"
-q_chan_stride = "LR2"
-out_stride = "LR3"
-chan_bound = "LR6"
-out_ptr = "LR7"
-key_ptr = "LR8"
-key_index = "LR9"
-n_tok = "LR10"
-key_stride = "LR12"
+chan_last = "CR8"
+n_tok = "CR10"
+q_chan_stride = "CR11"
 qf = "CR14"
 # CR15 unbound -> default DS (CR15.L: valid_elements = 128), as the recorded cases ran
-# Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]

@@ -67,17 +67,18 @@
 {% set rc_slot0      = "LR0" %}   {# const 0: r_cyclic write-index / mask_shift #}
 {% set data_ptr      = "LR4" %}   {# byte offset into D, walks channels k       #}
 {% set k_index       = "LR5" %}   {# contraction index k → selects W[j,k]       #}
-{% set data_stride   = "LR2" %}   {# 256 = bytes per input channel              #}
-{% set out_stride    = "LR3" %}   {# 512 = bytes per output row                 #}
-{% set k_bound_r0    = "LR6" %}   {# 126 = k-loop1 bound (k=0..127 from R0)     #}
-{% set k_bound_r1    = "LR11" %}  {# 142 = k-loop2 bound (k=128..143 from R1)   #}
+{% set data_stride   = cr.d_stride %}   {# 256 = bytes per input channel              #}
+{% set out_stride    = "CR1" %}   {# 512 = bytes per output row                 #}
+{% set k_bound_r0 = cr.bounds ~ ".L" %}   {# 126 = k-loop1 bound (k=0..127 from R0)     #}
+{% set k_bound_r1 = cr.bounds ~ ".H" %}  {# 142 = k-loop2 bound (k=128..143 from R1)   #}
 {% set out_ptr       = "LR7" %}   {# byte offset into C, += out_stride per j    #}
 {% set w_ptr         = "LR8" %}   {# byte offset into W, += w_stride per j      #}
 {% set j_index       = "LR9" %}   {# output-channel counter j                   #}
-{% set j_limit       = "LR10" %}  {# 144 = N_OUT                                #}
-{% set w_stride      = "LR12" %}  {# 256 = W_STRIDE bytes per output channel    #}
+{% set j_limit       = cr.n %}  {# 144 = N_OUT                                #}
+{% set w_stride      = cr.w_stride %}  {# 256 = W_STRIDE bytes per output channel    #}
 
 {% set DATA_BASE     = "CR0" %}   {# base of D                                  #}
+{% set ZERO          = "CR0" %}   {# hardwired read-only 0                      #}
 {% set ONE           = "CR1" %}   {# hardwired read-only 1                      #}
 {% set W_BASE_HI     = "CR2" %}   {# WEIGHTS_BASE + 128 (W[j,128..143])         #}
 {% set OUT_BASE_TG0  = "CR3" %}
@@ -113,7 +114,7 @@
     #
     # Co-issuing still works because both readers keep their original
     # relationship: MULT reads k_index LIVE (post-ADD) and BLT.S reads the
-    # SNAPSHOT (pre-ADD), so the harness's LR6/LR11 bounds stay valid unchanged.
+    # SNAPSHOT (pre-ADD), so the CR13.L/CR13.H bounds stay valid unchanged.
     # The only adjustment is the STARTING value. The load now runs one bundle
     # ahead, so on the cycle a chunk is multiplied, k_index must name THAT chunk
     # rather than the one being fetched -- i.e. one lower than before at every
@@ -121,7 +122,12 @@
     # outside the k-loops and so costs nothing per contraction step. CR7/CR8 are
     # read as-is; no harness constant changes.
 
+    SET {{ out_ptr }} {{ ZERO }};                      # output pointer, weight offset, j: all start at 0
+    SET {{ w_ptr }} {{ ZERO }};
+    SET {{ j_index }} {{ ZERO }};;
+
 j_loop:
+    SET {{ rc_slot0 }} {{ ZERO }};                     # R_CYCLIC slot 0
     LD.MULT R0 {{ w_ptr }} {{ W_BASE_LO }};;       # R0[0..127] = W[j, 0..127]
     LD.MULT R1 {{ w_ptr }} {{ W_BASE_HI }};;       # R1[0..127] = W[j, 128..143] + zeros
 

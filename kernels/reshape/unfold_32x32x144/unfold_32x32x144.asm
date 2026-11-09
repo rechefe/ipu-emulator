@@ -40,22 +40,17 @@
     cols) into one 32-element R_ACC slot (slot 0..3). Four calls, one per
     stripe of the token group, fill the whole 128-element accumulator.
 
-    ABI: kernel.toml's [abi] binds the CRs and LRs below.
+    ABI: kernel.toml's [abi] binds the CRs below.
       CR0          x's stripe 0, read through the hardwired 0: x must sit at
                    row 0
       CR13         x's stripe 1 (CR1 is read-only, so not CR1)
       CR2..CR7     x's stripes 2..7
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
       CR9..CR12    streams TL, TR, BL, BR of y
-      LR1..LR3     ACC.STRIDE R_ACC slots 1..3
-      LR5          source row stride per channel (1)
-      LR6          destination row stride per channel (2: tg0, tg1)
-      LR9          token group 1's destination row offset (starts at 1)
-      LR11         the channel loop's bound (144)
+      CR14.H       the channel loop's bound (144), above the QF half
     LR0 (R_CYCLIC slot 0, mask immediate, ACC.STRIDE slot 0), LR4 (source
     row offset within each stripe), LR8 (token group 0's destination row
-    offset) and LR10 (channel counter) start at 0, as kernel.toml's [abi]
-    binds them (slot0, src_row, dst_row, channel). CR1
+    offset) and LR10 (channel counter) are set by the program's first words (the row strides are the hardwired CR1)
     (hardwired 1) is the channel loop's increment. CR0 and CR1 are
     read-only: a host write to either raises.
 
@@ -89,8 +84,9 @@
 # ---------------------------------------------------------------------------
 # Initialisation
 # ---------------------------------------------------------------------------
-# kernel.toml's [abi] binds LR0-LR6 and LR8-LR11: LR0, LR4, LR8 and LR10 to 0
-# (slot0, src_row, dst_row, channel), the rest as the header lists.
+# The program sets every LR it reads. Slots 0 and 1 and the row offsets in the
+# two entry words; slots 2 and 3 (2 and 3, built from slot 1) in the first
+# stream's first two words, before the ACC.STRIDE that reads each.
 
 # ---------------------------------------------------------------------------
 # Register names (Jinja2 preprocessor; pure source-level substitution)
@@ -100,12 +96,12 @@
 {% set acc_slot2   = "LR2"  %}  {# const 2: ACC.STRIDE r_acc slot 2 -> [64..95] #}
 {% set acc_slot3   = "LR3"  %}  {# const 3: ACC.STRIDE r_acc slot 3 -> [96..127] #}
 {% set src_off     = "LR4"  %}  {# source row offset within each stripe (= ch) #}
-{% set src_stride  = "LR5"  %}  {# 1 = source row stride per channel #}
-{% set dst_stride  = "LR6"  %}  {# 2 = destination row stride per channel (tg0, tg1) #}
+{% set src_stride  = "CR1"  %}  {# 1 = source row stride per channel: the hardwired 1 #}
+{% set dst_stride  = acc_slot2  %}  {# 2 = destination row stride per channel (tg0, tg1): the same constant as slot 2 #}
 {% set dst_off_tg0 = "LR8"  %}  {# tg=0 destination row offset = ch*2 #}
 {% set dst_off_tg1 = "LR9"  %}  {# tg=1 destination row offset = ch*2 + 1 #}
 {% set ch_index    = "LR10" %}  {# channel counter (0..143) #}
-{% set ch_limit    = "LR11" %}  {# 144 = channel count #}
+{% set ch_limit    = cr.qf ~ ".H"  %}  {# 144 = channel count: CR14's free high half #}
 
 {% set STRIPE0_TG0 = "CR0"  %}  {# x + 0*144 rows (stripe 0) #}
 {% set ONE         = "CR1"  %}  {# hardwired read-only 1 #}
@@ -135,8 +131,14 @@
    ] %}
 {% set slots = [acc_slot0, acc_slot1, acc_slot2, acc_slot3] %}
 
+    SET                 {{ acc_slot0 }} CR0;                               # slot 0
+    SET                 {{ acc_slot1 }} CR1;                               # slot 1
+    SET                 {{ src_off }} CR0;                                 # source row offset
     LD.MULT.CYCLIC {{ acc_slot0 }} {{ ONES_BASE }} {{ acc_slot0 }};;  # r_cyclic[0..127] = 1.0
 
+    SET                 {{ dst_off_tg0 }} CR0;                             # destination row offsets
+    SET                 {{ dst_off_tg1 }} CR1;
+    SET                 {{ ch_index }} CR0;                                # channel counter
     LD.MULT        R0 {{ src_off }} {{ STRIPE0_TG0 }};;               # prime: stripe 0, tg=0 of ch 0
 
 # ---------------------------------------------------------------------------
@@ -159,6 +161,11 @@ ch_loop:
     # Last load of the channel wraps to stripe 0 of the NEXT channel, so
     # src_off must advance in the word BEFORE it (LR slots precede LOAD).
     ADD                 {{ src_off }} {{ src_off }} {{ src_stride }};;     # src offset: next channel (+1 row)
+{%- endif %}
+{%- if gi == 0 and s == 0 %}
+    ADD                 {{ acc_slot2 }} {{ acc_slot1 }} {{ ONE }};         # slot 2 = 2 (set again every channel: harmless)
+{%- elif gi == 0 and s == 1 %}
+    ADD                 {{ acc_slot3 }} {{ acc_slot2 }} {{ ONE }};         # slot 3 = 3
 {%- endif %}
     LD.MULT R0 {{ src_off }} {{ nstripe }};
     MULT.RC.VV {{ acc_slot0 }} R0 0 {{ acc_slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;

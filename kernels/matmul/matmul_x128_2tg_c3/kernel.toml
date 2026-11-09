@@ -22,14 +22,9 @@ d_start0   = "-n_tg"                                   # tg 0 data startup (rows
 d_start1   = "-1"                                      # tg 1 data startup (rows)
 idx_start  = "-1"                                      # per-chunk fixed_idx startup
 tail_bound = "k - 256 - 2"                             # tail-chunk bound: its width - 2
-slot0      = "0"                                       # R_CYCLIC write index 0 (LR0)
-d_stride   = "n_tg"                                    # data rows per input channel (LR2)
-y_stride   = "1"                                       # output rows per channel (LR3)
-full_bound = "126"                                     # a 128-wide chunk's bound (LR6)
-y_ptr      = "0"                                       # output pointer (LR7)
-w_off      = "0"                                       # weight row offset (LR8)
-j0         = "0"                                       # j counter (LR9)
-w_stride   = "chunks"                                  # weight rows per output channel (LR12)
+d_stride   = "n_tg"                                    # data rows per input channel
+bounds     = "halves(126, tail_bound)"                 # CR13: a 128-wide chunk's bound (low half) and the last chunk's (high half)
+w_stride   = "chunks"                                  # weight rows per output channel
 qf         = "case_qf"                                 # the case's QF half (0 in FP32, which ignores it)
 
 # Placed from row 0: b, a, y (the old XMEM map).
@@ -55,16 +50,10 @@ y_tg1      = "CR5"
 d_start0   = "CR6"
 d_start1   = "CR7"
 idx_start  = "CR8"
-slot0      = "LR0"
-d_stride   = "LR2"
-y_stride   = "LR3"
-full_bound = "LR6"
-y_ptr      = "LR7"
-w_off      = "LR8"
-j0         = "LR9"
-n          = "LR10"
-tail_bound = "LR11"
-w_stride   = "LR12"
+d_stride   = "CR11"
+bounds     = "CR13"
+n          = "CR10"
+w_stride   = "CR12"
 qf         = "CR14"  # the MULT QF half: CR14.L
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.

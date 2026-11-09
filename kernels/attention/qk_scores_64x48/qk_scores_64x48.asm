@@ -40,7 +40,7 @@
                        never shared between queries).
 
     head_dim = 48 needs no padding: it is the contraction LOOP COUNT (bound
-    LR6 = D-2 = 46), not a lane count. Lanes here are keys.
+    D-2 = 46), not a lane count. Lanes here are keys.
 
     MULT CYCLE-START CONTRACT (issue #157): MULT.RC.VE reads its R_CYCLIC DATA from
     the cycle-start value while keeping the LR index live, so it cannot
@@ -59,8 +59,8 @@
       through into the loop body. That changes what BLT.S sees: with the ADD in the
       same word, BLT.S read the pre-ADD cycle-start value; with the ADD one word earlier it
       reads the already-incremented value and would exit a channel early. The
-      loop bound is therefore raised by one, in-kernel, into chan_last
-      (= chan_bound + 1 = D-1 = 47), leaving the harness's LR6 untouched.
+      loop bound is therefore D-1 = 47, bound to CR8 (chan_last) and read
+      by the BLT.S directly.
       Each query re-SETs k_ptr and chan_index, so no pipeline state crosses a
       query or block boundary.
 
@@ -80,28 +80,28 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    The register-name block below names every register. The ones the harness
-    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
-    are the hardwired 0 and 1, and the other LRs are the program's own.
+    The register-name block below names every register. The CRs the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>); CR0 and CR1 are the
+    hardwired 0 and 1, and every LR is the program's own: it sets each one
+    before it reads it (a constant that is never written is read from a CR).
 
     ---------------------------------------------------------------------------
     Register names (Jinja2 preprocessor; pure source-level substitution)
     ---------------------------------------------------------------------------
 -#}
-{% set rc_slot0    = lr.rc_slot0  %}  {# const 0: R_CYCLIC write-index / mask_shift #}
-{% set k_stride    = lr.k_stride  %}  {# 1 = rows per K channel column #}
-{% set out_stride  = lr.out_stride  %}  {# 1 = rows per query (one key group) #}
+{% set rc_slot0    = "LR0"  %}  {# const 0: R_CYCLIC write-index / mask_shift; set in the block loop #}
+{% set k_stride    = "CR1"  %}  {# 1 = rows per K channel column: the hardwired 1 #}
+{% set out_stride  = "CR1"  %}  {# 1 = rows per query (one key group): the hardwired 1 #}
 {% set k_ptr       = "LR4"  %}  {# row offset into K, walks head channels c #}
 {% set chan_index  = "LR5"  %}  {# head-channel index c -> selects Q[i,c] in R0 #}
-{% set chan_bound  = lr.chan_bound  %}  {# 46 = contraction bound (first=0, width=48) #}
-{% set chan_last   = "LR11" %}  {# 47 = chan_bound + 1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
-{% set out_ptr     = lr.out_ptr  %}  {# row offset into S, += out_stride per query #}
-{% set q_ptr       = lr.q_ptr  %}  {# row offset into staged QROW, += qrow_stride #}
-{% set q_index     = lr.q_index  %}  {# query counter i within the block #}
-{% set q_limit     = lr.n_tok %}  {# 64 = N queries per block #}
-{% set qrow_stride = lr.q_stride %}  {# 1 = QROW rows per query #}
-{% set k_block_off = lr.k_block_off %}  {# K row offset of the current block, += 48 #}
-{% set blk_index   = lr.block_index %}  {# block counter b (stream, head) #}
+{% set chan_last   = cr.chan_last  %}  {# 47 = D-1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
+{% set out_ptr     = "LR7"  %}  {# row offset into S, += out_stride per query #}
+{% set q_ptr       = "LR8"  %}  {# row offset into staged QROW, += qrow_stride #}
+{% set q_index     = "LR9"  %}  {# query counter i within the block #}
+{% set q_limit     = cr.n_tok %}  {# 64 = N queries per block #}
+{% set qrow_stride = "CR1"  %}  {# 1 = QROW rows per query: the hardwired 1 #}
+{% set k_block_off = "LR13" %}  {# K row offset of the current block, += 48 #}
+{% set blk_index   = "LR14" %}  {# block counter b (stream, head) #}
 {% set k_start     = "LR15" %}  {# k_block_off + K_START; per-query k_ptr seed #}
 
 {% set ZERO        = "CR0"  %}  {# hardwired read-only 0 #}
@@ -110,19 +110,25 @@
 {% set S_BASE      = cr.y  %}  {# query-major score output base #}
 {% set K_START     = cr.k_start  %}  {# -1 row startup skew (first live = block base) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
-{% set CHAN_BOUND  = cr.chan_bound_unread  %}  {# 46 = D - 2: written by the harness, read by no instruction #}
 {% set QROW_BASE   = cr.a  %}  {# staged query-major Q base #}
 {% set BLK_LIMIT   = cr.n_block %}  {# 16 = P * N_HEAD blocks #}
 {% set K_BLOCK     = cr.k_block %}  {# 48 = K rows per (stream, head) block #}
 {% set DSTRUCT     = cr.dstruct ~ ".L" %}  {# the DS half #}
 
-    # chan_last = chan_bound + 1 (= D-1 = 47). See the cycle-start value note in the
+    # chan_last = D-1 = 47. See the cycle-start value note in the
     # header: chan_index's ADD now sits one word ahead of the BLT.S, so the branch
     # compares an already-incremented index and needs the higher bound.
-    ADD {{ chan_last }} {{ chan_bound }} {{ ONE }};;
+    #
+    # The program sets every LR it reads: these four here, LR0 and the query counter
+    # at the top of each block.
+    SET {{ out_ptr }} {{ ZERO }};
+    SET {{ q_ptr }} {{ ZERO }};
+    SET {{ k_block_off }} {{ ZERO }};;
+    SET {{ blk_index }} {{ ZERO }};;
 
 blk_loop:
-    SET {{ q_index }} {{ ZERO }};;                        # query counter = 0
+    SET {{ q_index }} {{ ZERO }};                         # query counter = 0
+    SET {{ rc_slot0 }} {{ ZERO }};;                       # R_CYCLIC slot 0 (set again every block: harmless)
     ADD {{ k_start }} {{ k_block_off }} {{ K_START }};;   # per-query k_ptr seed = block base - 1 row
 
 q_loop:

@@ -83,17 +83,15 @@
       rebuilt once per stream per channel for auditability; a cycle-tuned
       version could keep it across channels.
 
-    ABI: kernel.toml's [abi] binds the CRs and LRs below.
+    ABI: kernel.toml's [abi] binds the CRs below.
       CR2, CR3     source table [0,1,2,3] / [4,5,6,7]
       CR4, CR5     stream 0's destination table [0,2,4,6] / [16,18,20,22]
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
       CR9..CR12    streams 0..3 of x
       CR13         y
-      LR7, LR9     source and destination row stride per channel (1)
-      LR11         the channel loop's bound (240)
+      CR6          the channel loop's bound (240)
     LR0 (R_CYCLIC slot 0), LR6 (source row offset), LR8 (destination row
-    offset) and LR10 (channel counter) start at 0, as kernel.toml's [abi]
-    binds them (slot0, src_row, dst_row, channel).
+    offset) and LR10 (channel counter) are set by the program's first words (the row strides are the hardwired CR1)
     CR1 (hardwired 1) is the channel loop's increment.
 
     CR0 IS NOT A FREE BASE: CR0 (0) and CR1 (1) are hardwired, and a host
@@ -126,8 +124,12 @@
      ("s3", 9, "CR12", "CR9"),
    ] %}
 
+    SET                 LR0 CR0;                # R_CYCLIC slot 0, source and destination row offsets
+    SET                 LR6 CR0;
+    SET                 LR8 CR0;
     LD.MULT.CYCLIC LR0 CR8 LR0;;       # r_cyclic[0..127] = 1.0
 
+    SET                 LR10 CR0;               # channel counter
     LD.MULT        R0 LR6 CR9;;        # prime: stream 0 row of ch 0
 
 # ---------------------------------------------------------------------------
@@ -153,7 +155,7 @@ ch_loop:
     # offset: LR sub-slots run ahead of LOAD within a word (same hazard
     # fold_16x16x192/fold_32x32x144 document for their src-offset LR), so
     # this ADD gets its own word.
-    ADD                 LR6 LR6 LR7;;       # src offset: next channel (+1 row)
+    ADD                 LR6 LR6 CR1;;       # src offset: next channel (+1 row)
 {%- endif %}
     LD.MULT R0 LR6 {{ next_cr }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;;          # multiply {{ name }} row (prefetch next stream)
@@ -165,9 +167,9 @@ ch_loop:
     ACTIVATE.EXACT identity CR15.L CR13 LR8;; # ch <- DST_BASE_ROW + ch (current channel)
 
     # -- Advance pointers; loop -------------------------------------------------
-    ADD                 LR8 LR8 LR9;;       # dst offset: next channel
+    ADD                 LR8 LR8 CR1;;       # dst offset: next channel
     ADD                 LR10 LR10 CR1;;
-    BLT.S                 LR10 LR11 ch_loop;; # loop while ch < 240
+    BLT.S                 LR10 {{ cr.c }} ch_loop;; # loop while ch < 240
 
 end:
     HALT;;

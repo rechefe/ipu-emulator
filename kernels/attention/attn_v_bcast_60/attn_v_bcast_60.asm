@@ -57,9 +57,10 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    The register-name block below names every register. The ones the harness
-    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
-    are the hardwired 0 and 1, and the other LRs are the program's own.
+    The register-name block below names every register. The CRs the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>); CR0 and CR1 are the
+    hardwired 0 and 1, and every LR is the program's own: it sets each one
+    before it reads it (a constant that is never written is read from a CR).
 
     Loop bounds (BLT.S reads the pre-ADD cycle-start value; branch taken while cycle start < bound):
       KEY_BOUND   = 14          (key-loop bound: width 16, peeled + startup)
@@ -70,9 +71,9 @@
     Register names (Jinja2 preprocessor; pure source-level substitution)
     ---------------------------------------------------------------------------
 -#}
-{% set rc_slot0      = lr.rc_slot0  %}  {# const 0: R_CYCLIC index / mask_shift #}
-{% set key_stride    = lr.pv_stride  %}  {# P key stride and V channel stride (rows) #}
-{% set out_stride    = lr.out_row_stride  %}  {# output-row stride (rows) #}
+{% set rc_slot0      = "LR0"  %}  {# const 0: R_CYCLIC index / mask_shift; set below #}
+{% set key_stride    = "CR1"  %}  {# P key stride and V channel stride (rows): the hardwired 1 #}
+{% set out_stride    = "CR1"  %}  {# output-row stride (rows): the hardwired 1 #}
 {% set p_ptr         = "LR4"  %}  {# row offset into P (key-major) #}
 {% set key_index     = "LR5"  %}  {# contraction key index s -> selects V[s,t] in R0 #}
 {% set head_index    = "LR6"  %}  {# head counter h #}
@@ -104,7 +105,8 @@
     SET     {{ key_last }} {{ KEY_BOUND }};;
     ADD     {{ key_last }} {{ key_last }} {{ ONE }};;
 
-    SET     {{ v_ptr }} {{ ZERO }};;                          # R0 source offset = chan*KEY_STRIDE = 0
+    SET     {{ v_ptr }} {{ ZERO }};                           # R0 source offset = chan*KEY_STRIDE = 0
+    SET     {{ rc_slot0 }} {{ ZERO }};;                       # R_CYCLIC slot 0
     SET     {{ p_head_base }} {{ ZERO }};;                    # P head base = 0
     SET     {{ out_ptr }} {{ ZERO }};;                        # output offset = 0
 

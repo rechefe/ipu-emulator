@@ -57,8 +57,8 @@
       through into the loop body. That changes what BLT.S sees: with the ADD in the
       same word, BLT.S read the pre-ADD cycle-start value; with the ADD one word earlier it
       reads the already-incremented value and would drop the last channel. The
-      loop bound is therefore raised by one, in-kernel, into chan_last
-      (= chan_bound + 1 = D-1 = 47), leaving the harness's LR6 untouched.
+      loop bound is therefore D-1 = 47, bound to CR8 (chan_last) and read
+      by the BLT.S directly.
       Each key re-SETs q_ptr and chan_index, so no pipeline state crosses a key or
       stream boundary.
 
@@ -82,28 +82,28 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    The register-name block below names every register. The ones the harness
-    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
-    are the hardwired 0 and 1, and the other LRs are the program's own.
+    The register-name block below names every register. The CRs the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>); CR0 and CR1 are the
+    hardwired 0 and 1, and every LR is the program's own: it sets each one
+    before it reads it (a constant that is never written is read from a CR).
 
     ---------------------------------------------------------------------------
     Register names (Jinja2 preprocessor; pure source-level substitution)
     ---------------------------------------------------------------------------
 -#}
-{% set rc_slot0     = lr.rc_slot0  %}  {# const 0: R_CYCLIC write/read index #}
-{% set chan_stride  = lr.q_chan_stride  %}  {# 1 = rows between consecutive Q channels #}
-{% set out_stride   = lr.out_stride  %}  {# 1 = rows per stored key row #}
+{% set rc_slot0     = "LR0"  %}  {# const 0: R_CYCLIC write/read index; set in the stream loop #}
+{% set chan_stride  = "CR1"  %}  {# 1 = rows between consecutive Q channels: the hardwired 1 #}
+{% set out_stride   = "CR1"  %}  {# 1 = rows per stored key row: the hardwired 1 #}
 {% set q_ptr        = "LR4"  %}  {# row offset into Q, walks head channels c #}
 {% set chan_index   = "LR5"  %}  {# head-channel index c -> selects K[s,c] in R0 #}
-{% set chan_bound   = lr.chan_bound  %}  {# 46 = c-loop bound (first=0, width=48) #}
-{% set chan_last    = "LR11" %}  {# 47 = chan_bound + 1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
-{% set out_ptr      = lr.out_ptr  %}  {# row offset into S, += out_stride per store #}
-{% set key_ptr      = lr.key_ptr  %}  {# row offset into key-major K, += key_stride #}
-{% set key_index    = lr.key_index  %}  {# key counter s within the stream #}
-{% set key_limit    = lr.n_tok %}  {# 64 = N keys per stream #}
-{% set key_stride   = lr.key_stride %}  {# 1 = rows per key in K #}
-{% set q_stream_off = lr.q_stream_off %}  {# Q row offset of the current stream, += 48 #}
-{% set stream_index = lr.stream_index %}  {# stream counter p #}
+{% set chan_last    = cr.chan_last  %}  {# 47 = D-1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
+{% set out_ptr      = "LR7"  %}  {# row offset into S, += out_stride per store #}
+{% set key_ptr      = "LR8"  %}  {# row offset into key-major K, += key_stride #}
+{% set key_index    = "LR9"  %}  {# key counter s within the stream #}
+{% set key_limit    = cr.n_tok %}  {# 64 = N keys per stream #}
+{% set key_stride   = "CR1" %}  {# 1 = rows per key in K: the hardwired 1 #}
+{% set q_stream_off = "LR13" %}  {# Q row offset of the current stream, += 48 #}
+{% set stream_index = "LR14" %}  {# stream counter p #}
 {% set q_start      = "LR15" %}  {# q_stream_off + Q_START; per-key q_ptr seed #}
 
 {% set ZERO         = "CR0"  %}  {# hardwired read-only 0 #}
@@ -112,19 +112,25 @@
 {% set Q_BASE       = cr.b  %}  {# channel-major Q base #}
 {% set Q_START      = cr.q_start  %}  {# -1 row startup skew (first live = stream base) #}
 {% set CHAN_START   = cr.chan_start  %}  {# -1 -> first live c = 0 #}
-{% set CHAN_BOUND   = cr.chan_bound_unread  %}  {# 46 = D - 2: written by the harness, read by no instruction #}
 {% set K_BASE_KM    = cr.a  %}  {# key-major K base (a) #}
 {% set STREAM_LIMIT = cr.p %}  {# 4 = P streams #}
 {% set Q_STREAM     = cr.q_stream_rows %}  {# 48 = Q rows per stream #}
 {% set DSTRUCT      = "CR15.L" %}  {# the DS half #}
 
-    # chan_last = chan_bound + 1 (= D-1 = 47). See the cycle-start value note in the
+    # chan_last = D-1 = 47. See the cycle-start value note in the
     # header: chan_index's ADD now sits one word ahead of the BLT.S, so the branch
     # compares an already-incremented index and needs the higher bound.
-    ADD {{ chan_last }} {{ chan_bound }} {{ ONE }};;
+    #
+    # The program sets every LR it reads: these four here, LR0 and the key counter
+    # at the top of each stream.
+    SET {{ out_ptr }} {{ ZERO }};
+    SET {{ key_ptr }} {{ ZERO }};
+    SET {{ q_stream_off }} {{ ZERO }};;
+    SET {{ stream_index }} {{ ZERO }};;
 
 p_loop:
-    SET {{ key_index }} {{ ZERO }};;                        # key counter = 0
+    SET {{ key_index }} {{ ZERO }};                         # key counter = 0
+    SET {{ rc_slot0 }} {{ ZERO }};;                         # R_CYCLIC slot 0 (set again every stream: harmless)
     ADD {{ q_start }} {{ q_stream_off }} {{ Q_START }};;    # per-key q_ptr seed = stream base - 1 row
 
 s_loop:

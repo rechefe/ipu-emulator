@@ -83,7 +83,7 @@
 # Register names (Jinja2 preprocessor; pure source-level substitution)
 # ---------------------------------------------------------------------------
 {% set data_ptr        = "LR0"  %}  {# data row pointer, walks continuously across chunks (+1 row/k-step) #}
-{% set rc_slot0         = lr.rc_slot0 %}  {# const 0: r_cyclic write-index 0 #}
+{% set rc_slot0         = "LR1"  %}  {# const 0: r_cyclic write-index 0; set below #}
 {% set k_idx            = "LR2"  %}  {# fixed_idx (MULT.RC.VE rc_idx), reset per chunk, biased on chunk 0 #}
 {% set bound            = "LR3"  %}  {# selected inner-loop bound for the current chunk #}
 {% set weight_row_off   = "LR4"  %}  {# j's weight-row base = j*W_STRIDE_ROWS, += W_STRIDE_ROWS per j #}
@@ -113,7 +113,8 @@
 {% set DSTRUCT          = cr.ds_qf ~ ".L" %}  {# the DS half: ds(128) #}
 {% set QF               = cr.ds_qf ~ ".H" %}  {# the QF half (case_qf; FP32 ignores it) #}
 
-    SET {{ stream_idx }} {{ ZERO }};;                              # p = 0
+    SET {{ stream_idx }} {{ ZERO }};                              # p = 0
+    SET {{ rc_slot0 }} {{ ZERO }};;
     SET {{ stream_data_base }} {{ DATA_BASE }};;                    # stream 0 D base
     SET {{ stream_out_base }} {{ OUTPUT_BASE }};;                   # stream 0 C base
 
