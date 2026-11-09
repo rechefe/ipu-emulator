@@ -13,7 +13,7 @@ fails in a chain after a kernel that left other LRs.
 from __future__ import annotations
 
 import re
-import tomllib
+import sys
 from pathlib import Path
 from zlib import crc32
 
@@ -24,6 +24,11 @@ from ipu_harness import abi, runner, stages
 from ipu_harness.cases import expand
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import RunOptions, run_kernel
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 LR_COUNT = 16
 
