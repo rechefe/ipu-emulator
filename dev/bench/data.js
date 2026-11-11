@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794396525861,
+  "lastUpdate": 1794396528135,
   "repoUrl": "https://github.com/rechefe/ipu-emulator",
   "entries": {
     "Times and memory (smaller is better)": [
@@ -1062,6 +1062,64 @@ window.BENCHMARK_DATA = {
             "value": 10066.949387,
             "unit": "cycles/s",
             "extra": "default case; cycles=179281 run=17.809 s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eyal Rechef",
+            "username": "rechefe",
+            "email": "103856782+rechefe@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4ebd3918f89cf709047a0ccdfec9499262296ca6",
+          "message": "Merge pull request #296 from rechefe/crm-cache\n\nCrm cache",
+          "timestamp": "2026-11-09T14:27:50Z",
+          "url": "https://github.com/rechefe/ipu-emulator/commit/4ebd3918f89cf709047a0ccdfec9499262296ca6"
+        },
+        "date": 1794396527647,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "assemble/words_per_s",
+            "value": 8826.17557,
+            "unit": "words/s",
+            "extra": "files=129 words=8240"
+          },
+          {
+            "name": "emulator/faithful/matmul_384x192_x128.default/cycles_per_s",
+            "value": 4651.065444,
+            "unit": "cycles/s",
+            "extra": "cycles=77185 best of 5: 16.595 s"
+          },
+          {
+            "name": "emulator/faithful/fully_connected.e4/cycles_per_s",
+            "value": 6630.287021,
+            "unit": "cycles/s",
+            "extra": "cycles=2674 best of 5: 0.403 s"
+          },
+          {
+            "name": "emulator/faithful/fully_connected.dynamic/cycles_per_s",
+            "value": 6435.83352,
+            "unit": "cycles/s",
+            "extra": "cycles=2674 best of 5: 0.415 s"
+          },
+          {
+            "name": "kernel/identity/cycles_per_s",
+            "value": 6808.379754,
+            "unit": "cycles/s",
+            "extra": "default case; cycles=17 run=0.002 s"
+          },
+          {
+            "name": "kernel/matmul_720x240_x128/cycles_per_s",
+            "value": 4606.730111,
+            "unit": "cycles/s",
+            "extra": "default case; cycles=179281 run=38.917 s"
           }
         ]
       }
