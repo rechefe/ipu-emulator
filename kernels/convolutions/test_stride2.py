@@ -88,3 +88,18 @@ def test_stage_1_reads_the_templates_values(registry, name):
         mine = plan.derived[n] if n in plan.derived else plan.params[n]
         theirs = plain.derived[n] if n in plain.derived else plain.params[n]
         assert mine == theirs, n
+
+
+@pytest.mark.parametrize("name", STRIDE2)
+def test_stage_2_loops_stop_at_their_bound(registry, name):
+    # A loop counter updated in the BLT.S word is read at its old value and
+    # the loop runs once too often, storing a row past the output (and
+    # reading past stage 1's). Stage 1 stores one row per chunk and stage 2
+    # one per output row, so the model's count of rows written is their sum.
+    kernel = registry.kernel(name)
+    for case in expand(kernel):
+        plan = plan_case(kernel, case.values, ElementFormat.FP32, case=case.decl)
+        result = run_kernel(kernel, case, ElementFormat.FP32)
+        assert result.passed, (case.name, result.describe())
+        output_rows = len(result.raw_outputs["out"]) // 512
+        assert result.stats.xmem_writes == plan.derived["stage1_rows"] + output_rows, case.name

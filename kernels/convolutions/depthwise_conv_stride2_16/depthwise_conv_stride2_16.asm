@@ -96,9 +96,9 @@ pair_loop:
     # Two separate ADDs (ADD's src_a reads the cycle-start snapshot, so a
     # same-word double ADD into lr3 would not see the first result).
     ADD                 LR3 LR3 CR1;;
-    ADD                 LR3 LR3 CR1;;
+    ADD                 LR3 LR3 CR1;
+    INC                 LR1 1;;                         # a word ahead of its BLT.S (BLT.S reads the cycle start)
 
-    INC                 LR1 1;
     BLT.S                 LR1 {{ cr.num_channel_pairs }} pair_loop;;
 
 end:
