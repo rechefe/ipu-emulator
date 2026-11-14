@@ -20,8 +20,8 @@ name: Nightly
 #   uploaded as an artifact and appended to the `benchmark-data` branch. No
 #   gate: an alert above 120 % only shows in the job summary.
 # - `report`: on a scheduled run (or a dispatch with `report_issue`), opens or
-#   updates the "Nightly failure" issue when a job failed, and closes it when
-#   every job passed.
+#   updates the "Nightly failure" issue when a job failed (`benchmarks`
+#   included), and closes it when every job passed.
 
 on:
   schedule:
@@ -298,6 +298,17 @@ jobs:
           git -C "$dir" push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             benchmark-data
 
+      # `bazel run` rewrites MODULE.bazel.lock on the runner (default
+      # --lockfile_mode=update), and github-action-benchmark refuses to
+      # `git switch benchmark-data` over a modified tracked file. Print the
+      # change so it can be fixed at the source, then drop it.
+      - name: Discard Bazel's changes to the working tree
+        shell: bash
+        run: |
+          git diff --stat
+          git diff -- MODULE.bazel.lock | head -n 200 || true
+          git checkout -- .
+
       - name: Store times and memory (smaller is better)
         uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
         with:
@@ -329,7 +340,7 @@ jobs:
           summary-always: true
 
   report:
-    needs: [full, heavy, proto]
+    needs: [full, heavy, proto, benchmarks]
     if: always() && (github.event_name == 'schedule' || inputs.report_issue)
     runs-on: ubuntu-latest
     permissions:
@@ -352,13 +363,15 @@ jobs:
           FULL: ${{ needs.full.result }}
           HEAVY: ${{ needs.heavy.result }}
           PROTO: ${{ needs.proto.result }}
+          BENCHMARKS: ${{ needs.benchmarks.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
           title="Nightly failure"
           number=$(gh issue list --state open --label nightly --search "\"$title\" in:title" \
                      --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n1)
-          if [ "$FULL" = success ] && [ "$HEAVY" = success ] && [ "$PROTO" = success ]; then
+          if [ "$FULL" = success ] && [ "$HEAVY" = success ] && [ "$PROTO" = success ] \
+             && [ "$BENCHMARKS" = success ]; then
             if [ -n "$number" ]; then
               gh issue close "$number" --comment "Fixed: nightly run $RUN_URL passed."
             fi
@@ -372,6 +385,7 @@ jobs:
             echo "| full (default tier, with coverage) | $FULL |"
             echo "| heavy (heavy tier) | $HEAVY |"
             echo "| proto (heavy tier, \`--config=proto\`) | $PROTO |"
+            echo "| benchmarks (no failed-target list; see the run) | $BENCHMARKS |"
             echo
             echo "Failed targets:"
             echo
