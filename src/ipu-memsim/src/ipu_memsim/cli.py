@@ -5,6 +5,8 @@
     memsim sweep   --spec EXPERIMENT.toml [--out DIR]
     memsim sweep   TRACE --out DIR
     memsim sensitivity --spec SENSITIVITY.toml [--out DIR]
+    memsim knee --spec NUM_BANKS_SWEEP.toml [--out DIR]
+    memsim formulas [--traces DIR] [--bank-rows N ...]
     memsim params  [MODEL]
     memsim network NETWORK.toml --out DIR [--configs FILE.toml ...]
     memsim dram-measure --dramsim3 PROGRAM --ini CONFIG.ini [--out FILE.toml]
@@ -219,6 +221,93 @@ def _sensitivity(args: argparse.Namespace) -> int:
     return 0
 
 
+def _knee(args: argparse.Namespace) -> int:
+    """``memsim knee --spec``: a num_banks sweep, its knees, and the formulas' banks beside them."""
+    import csv
+
+    from ipu_memsim import experiment, formulas
+    from ipu_memsim.knee import knees
+
+    spec = experiment.load_spec(_user_path(args.spec))
+    workload = experiment.load_workload(spec, _workspace(), _commit())
+    table = experiment.run_sweep(spec, _workspace(), workload=workload)
+    bank_rows = int(spec.get("fixed", {}).get("bank_rows", 1024))
+    found = knees(table, bank_rows, float(table.spec["report"]["threshold_percent"]))
+    # The closed-form prediction: the most banks any kernel of the group needs.
+    for entry in found:
+        needs = []
+        for item in workload:
+            if item.group == entry["group"] and item.trace is not None:
+                tables = formulas.tables_for(
+                    item.trace.header["kernel"], item.trace.header["params"]
+                )
+                needs.append(None if tables is None else formulas.kernel_banks(tables, bank_rows))
+        covered = [n for n in needs if n is not None]
+        entry["formula_banks"] = max(covered) if covered else None
+        entry["kernels_without_formula"] = sum(1 for n in needs if n is None)
+    out = _user_path(args.out) if args.out else _workspace() / "memsim-out" / table.spec["name"]
+    written = experiment.write_results(table, out)
+    with open(out / "knees.csv", "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(list(found[0]))
+        for entry in found:
+            writer.writerow(
+                [
+                    "" if v is None else (f"{v:.4g}" if isinstance(v, float) else v)
+                    for v in entry.values()
+                ]
+            )
+    print(
+        f"{'group':<16}{'threshold knee':>16}{'plateau knee':>14}{'rows':>8}{'MB':>8}{'formula':>9}{'stall % at most banks':>23}"
+    )
+    for e in found:
+        mb = "" if e["plateau_knee_mb"] is None else f"{e['plateau_knee_mb']:.3f}"
+        final = "n/a" if e["stall_at_most_banks"] is None else f"{e['stall_at_most_banks']:.2f}"
+        print(f"{e['group']:<16}{e['threshold_knee_banks']!s:>16}{e['plateau_knee_banks']!s:>14}"
+              f"{e['plateau_knee_rows']!s:>8}{mb:>8}{e['formula_banks']!s:>9}{final:>23}")  # fmt: skip
+    for path in [*written, out / "knees.csv"]:
+        print(path)
+    return 0
+
+
+def _formulas(args: argparse.Namespace) -> int:
+    """``memsim formulas``: check the working-set formulas against saved traces."""
+    import csv
+    from collections import Counter
+
+    from ipu_memsim import formulas
+
+    folder = _user_path(args.traces) if args.traces else _workspace() / "memsim-out" / "traces"
+    rows = []
+    uncovered = []
+    for path in sorted(folder.glob("*.csv*")):
+        trace = load_trace(path)
+        checked = formulas.validate(trace, tuple(args.bank_rows))
+        rows += checked
+        if not checked:
+            uncovered.append(trace.header["kernel"])
+    out = _user_path(args.out) if args.out else _workspace() / "memsim-out" / "formulas"
+    out.mkdir(parents=True, exist_ok=True)
+    with open(out / "validation.csv", "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(list(rows[0]) if rows else ["kernel"])
+        writer.writerows(list(row.values()) for row in rows)
+    exact = sum(
+        1
+        for r in rows
+        if r["rows_formula"] == r["rows_trace"] and r["look_back_formula"] == r["look_back_trace"]
+    )
+    print(f"{len(rows)} table checks; rows and look-back exact in {exact}")
+    print("banks, formula against replay:", dict(Counter(r["verdict"] for r in rows)))
+    for row in rows:
+        if row["verdict"] != "match":
+            print(f"  {row['verdict']}: {row['kernel']} table {row['table']} at {row['bank_rows']} rows per bank: "
+                  f"formula {row['banks_formula']}, replay {row['banks_replay']}")  # fmt: skip
+    print("kernels without a formula:", ", ".join(sorted(set(uncovered))) or "none")
+    print(out / "validation.csv")
+    return 0
+
+
 def _network(args: argparse.Namespace) -> int:
     from ipu_memsim.network import run_network
 
@@ -302,6 +391,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sen.add_argument("--out", help="folder for the results (default: memsim-out/<name>)")
     sen.set_defaults(run=_sensitivity)
+
+    kne = commands.add_parser("knee", help="smallest XMEM at which more banks stop helping")
+    kne.add_argument("--spec", required=True, help="an experiment file that sweeps num_banks")
+    kne.add_argument("--out", help="folder for the results (default: memsim-out/<name>)")
+    kne.set_defaults(run=_knee)
+
+    frm = commands.add_parser(
+        "formulas", help="check the working-set formulas against saved traces"
+    )
+    frm.add_argument("--traces", help="folder of traces (default: memsim-out/traces)")
+    frm.add_argument(
+        "--bank-rows", type=int, nargs="*", default=[1024, 256, 64], help="bank sizes to check at"
+    )
+    frm.add_argument("--out", help="folder for validation.csv (default: memsim-out/formulas)")
+    frm.set_defaults(run=_formulas)
 
     par = commands.add_parser("params", help="list every tunable parameter (the registry)")
     par.add_argument("model", nargs="?", help="only this model's parameters")

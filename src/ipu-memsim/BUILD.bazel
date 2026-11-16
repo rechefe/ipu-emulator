@@ -117,6 +117,18 @@ py_pytest_test(
     ],
 )
 
+# The closed-form working-set formulas and the knee finder.
+py_pytest_test(
+    name = "test_formulas",
+    srcs = ["test/test_formulas.py"],
+    deps = [
+        ":ipu_memsim_lib",
+        ":test_support",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
 # The cache_unit model against hand-computed schedules.
 py_pytest_test(
     name = "test_cache_unit",
