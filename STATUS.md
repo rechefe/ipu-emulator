@@ -1,7 +1,8 @@
 # STATUS: memory what-if tool (`src/ipu-memsim`)
 
-Last updated after Stage 9 (the follow-up brief: fill-time sweeps, the
-menu-driven front end, the residency switch). Branch `performance-modeling` (local, never
+Last updated after Stage 14 (round 3: sensitivity, knees and formulas, other
+model families, the FPGA harness, the thesis notes). Stage 15 (two-chip
+skeleton) was not started: see section 8. Branch `performance-modeling` (local, never
 pushed), branched from `master` at `c5c04f7c` ("Merge pull request #251").
 `master` already has both the convolution and the transformer kernels, so no
 integration branch was needed.
@@ -19,6 +20,12 @@ integration branch was needed.
 | 6 Design notes | done | [docs/memsim_design_notes.md](docs/memsim_design_notes.md) |
 | 7 Fill-time sweeps | done | `ipu_memsim.dram.BankFillDram` (fill time per bank, chip clock), `prefetch_distance`, `experiments/fill_time_2mb.toml`, `experiments/size_x_fill_time.toml`, break-even, heatmaps |
 | 8 Menu front end | done | `ipu_memsim.params` (the parameter registry), `ipu_memsim.experiment` (`run_sweep(spec)`), `memsim sweep --spec`, `ipu_memsim.ui` (Streamlit app, optional extra) |
+| 10 Sensitivity | done | `ipu_memsim.sensitivity`, `memsim sensitivity --spec`, `experiments/sensitivity_2mb.toml`; ranked list in [docs/questions.md](docs/questions.md) |
+| 11 Knees and formulas | done | `ipu_memsim.knee`, `ipu_memsim.formulas`, `memsim knee`, `memsim formulas`, `experiments/knee_2mb.toml`, `experiments/fill_time_fine.toml` |
+| 12 Other model families | done, except the hybrid CNN-ViT (template only) | `ipu_memsim.netstats`, `memsim netstats`, `networks/deit_tiny.toml`, `swin_t.toml`, `yolov8n.toml`, two templates, `scripts/export_layers.py` (not run here) |
+| 13 FPGA harness | done, on synthetic data only | `ipu_memsim.fpga`, `memsim fpga-compare`, [docs/fpga_validation_plan.md](docs/fpga_validation_plan.md) |
+| 14 Thesis notes | done | [docs/model_walkthrough.md](docs/model_walkthrough.md), [docs/code_map.md](docs/code_map.md), [docs/results_log.md](docs/results_log.md) |
+| 15 Two-chip skeleton | not started | design notes only ([docs/memsim_design_notes.md](docs/memsim_design_notes.md)) |
 | 9 Residency switch | done | `residency = "dram_roundtrip"` / `"stays_in_xmem"` in `cache_unit`, `experiments/residency_x_fill_time.toml` |
 
 The emulator and the ISA are untouched. The recorder uses only the reference
@@ -62,6 +69,16 @@ bazel run //src/ipu-memsim:memsim -- dram-measure --dramsim3 /path/to/dramsim3ma
 bazel run //src/ipu-memsim:memsim -- sweep --spec src/ipu-memsim/experiments/fill_time_2mb.toml
 bazel run //src/ipu-memsim:memsim -- sweep --spec src/ipu-memsim/experiments/size_x_fill_time.toml
 bazel run //src/ipu-memsim:memsim -- sweep --spec src/ipu-memsim/experiments/residency_x_fill_time.toml
+
+# 8. Round 3 commands.
+E=src/ipu-memsim/experiments; N=src/ipu-memsim/networks
+bazel run //src/ipu-memsim:memsim -- sensitivity --spec $E/sensitivity_2mb.toml   # which assumptions matter
+bazel run //src/ipu-memsim:memsim -- knee --spec $E/knee_2mb.toml                 # smallest useful XMEM per layer type
+bazel run //src/ipu-memsim:memsim -- sweep --spec $E/fill_time_fine.toml          # finer break-even
+bazel run //src/ipu-memsim:memsim -- formulas                                      # formulas against all saved traces
+bazel run //src/ipu-memsim:memsim -- netstats $N/deit_tiny.toml $N/swin_t.toml $N/yolov8n.toml
+bazel run //src/ipu-memsim:memsim -- fpga-compare --measured fpga_runs.csv \
+    --configs src/ipu-memsim/configs/fpga --traces memsim-out/traces --fit        # when FPGA data exists
 
 # 7. List every tunable parameter with its default, range and status label.
 bazel run //src/ipu-memsim:memsim -- params cache_unit
@@ -181,6 +198,14 @@ The status label of every parameter is in the registry
 | Streamlit, run through `uv`, as the optional extra `ipu-memsim[ui]` | It installs cleanly on this Mac with one command and needs no layout code. It is not in the repo's Bazel lock: re-locking needs network access and would pull about 40 packages into every build. |
 | PNG download through the chart's own menu | Streamlit's charts (Vega) save PNG themselves; converting the core's SVG to PNG would need a system library. The core still writes SVG files. |
 | Residency is a per-kernel switch, not a chained replay | Chaining needs to know which output feeds which input across kernels with different layouts. The switch gives the two bounds now: every activation from DRAM, or every activation page that fits its banks already present and no output drained. |
+| Sensitivity baseline gives the fill time in ns (2,111 ns at 1 ns) | Only then does the clock period have an effect, and the baseline column equals the existing 2,111-cycle results exactly. |
+| Sensitivity is three-point `run_sweep` calls, one per parameter | The numbers are then the same ones a sweep gives; no second code path to defend. |
+| Formula for banks = min(pages, ceil(look_back / R) + 1), "no bank loaded twice" | It is the residency a table needs, independent of DMA scheduling; it is the direct counterpart of the book's "3 x C_in - 1 lines". The knee finder measures the scheduling-dependent part separately. |
+| Formula validation measures with prefetch off | With prefetch on, the depthwise input needs one bank more at small bank sizes (the DMA fills a free bank the kernel then wants for an earlier page). That is a scheduling effect, reported by the knee, not a residency need. |
+| Other families: three network files written by hand, hybrid CNN-ViT left as a template | DeiT-Tiny, Swin-T and YOLOv8n could be checked: each reproduces its published parameter count exactly. For EdgeNeXt / EfficientViT I could not check a hand-written layer list, so I did not write one. |
+| Weights counted at one byte per element | The hardware formats are 8-bit (element-formats.md); a different width scales the byte columns. |
+| FPGA calibration fits one number (fill time) by a one-dimensional search, on every other run, and reports the rest | The smallest calibration that can be defended; held-out runs keep it honest. |
+| Stage 15 not started | Budget. Stages are ordered by value in the brief; the two-chip skeleton is last and its design notes already exist. |
 | Multi-stage kernels (3 of 67 folders) are not recorded | They run several programs; the recorder handles one. Reported as "not measured" in the network table. |
 
 ## 6. Test results against the baseline
@@ -197,7 +222,17 @@ target that needs torch. With `-k` (keep going) the torch-free targets run:
 
 | This branch after Stages 7 to 9, `bazel test -k //...` | 278 | 277 | 7295 passed, 265 skipped | 1 (the package's own lint target; fixed afterwards, see below) |
 
-The difference to the baseline is the 7 new targets of `//src/ipu-memsim`
+| This branch after Stage 14, `bazel test -k //...` | 280 | 280 | 7311 passed, 265 skipped | 0 |
+
+The difference to the baseline is now the 9 targets of `//src/ipu-memsim`
+(112 test cases). The torch-dependent targets still cannot be built on this
+Mac, before or after.
+Stage 10 acceptance: the sensitivity baseline column equals the existing
+2,111-cycle results exactly (0.79, 3.67, 1.56, 4.30, 2.31, 13.72, 101.90,
+7.03), and a saved `spec.toml` reproduces the run
+(`test_sensitivity_results_are_saved_with_their_spec_and_a_pair_heatmap`).
+
+Earlier: the difference to the baseline was the 7 new targets of `//src/ipu-memsim`
 (97 test cases). The last full run had one failure, `//src/ipu-memsim:ruff`:
 it was linting the `.venv` folder that `uv` creates for the browser app. The
 lint glob now excludes it and that target passes; the other 277 targets were
@@ -354,6 +389,35 @@ prints progress and refuses a grid above `max_replays` (default 20,000)
 without `--yes`; the app shows a progress bar and asks for confirmation
 above its limit (default 2,000).
 
+**Round 3 results** are listed one by one, with their commands and labels,
+in [docs/results_log.md](docs/results_log.md) (sections 7 to 12). In short:
+
+- *Sensitivity* (Stage 10): the ranking is in section 9 below and in
+  `docs/questions.md`. Bank sharing and `jump_back` are cliffs (spreads of
+  20,102 and 10,605 points); fill time, whole-bank transfers, clock,
+  residency and prefetch-before-start scale the cost of moving data (102 to
+  374 points); prefetch distance and DMA channels barely matter (19 and 0.4).
+- *Knees* (Stage 11), at 2,111 cycles per bank: more banks stop helping at 3
+  (elementwise), 4 (MLP), 5 (standard conv, reshape), 6 (depthwise,
+  attention), 7 (pointwise) and 11 (normalization) banks of 1024 rows, that
+  is 0.375 to 1.375 MB.
+- *Finer break-even*: stall passes 10% at 1,600 cycles per bank for
+  normalization, 3,200 for reshape, 5,000 for attention and 5,500 for
+  depthwise (first swept value above; line estimates 1,540, 3,003, 4,915,
+  5,280).
+- *Formulas*: table size and look-back as closed forms of the shape for
+  matmul, attention scores, attention x V, softmax, LayerNorm, residual add,
+  pointwise, 3x3 and depthwise convolutions. 426 checks against the replay:
+  rows and look-back exact in all; banks equal in 416, one too many in 10,
+  never too few. The book's `3 x C_in - 1` input look-back holds on the FP32
+  3x3 kernel; pointwise is `C_in - 1`, depthwise `2 x C`.
+- *Other families* (Stage 12): the hand-written layer lists reproduce the
+  published parameter counts exactly (DeiT-Tiny 5,717,416; Swin-T
+  28,288,354; YOLOv8n 3,157,200). Their knees are extrapolated, not
+  replayed.
+- *FPGA harness* (Stage 13): on synthetic data, a true fill time of 2,111
+  is fitted as 2,138 and the held-out error is 0.54%.
+
 **DRAMsim3, HBM2 (`HBM2_8Gb_x128.ini`, one channel, consecutive addresses,
 IPU clock 1 ns):** a 1024-row bank fills in 2,111 cycles and drains in
 2,050; 64 rows fill in 191. This is in
@@ -365,16 +429,26 @@ exit status.
 
 ## 8. Next three steps
 
-1. **Ask the structural questions** (section 9). They decide which column
-   and which model variant is the real one; the swept parameters only need a
-   range.
-2. **Chain the kernels of a network on one `cache_unit`**, so residency is
-   modelled layer to layer instead of as two bounds. This needs, per pair of
-   layers, which output table feeds which input table.
-3. **Set the real MobileViT-S shapes and counts** in
-   `networks/mobilevit_s.toml` from the team's model export (the convolution
-   list is a subset from the public architecture), and sweep the interval
-   where a layer type crosses the threshold more finely.
+1. **Take the ranked questions to the architects** (section 9). The first
+   two (bank sharing, `jump_back` and what happens on a revisit) decide
+   whether a configuration works at all; the rest scale the result.
+2. **Run the first FPGA kernels** in the order of
+   [docs/fpga_validation_plan.md](docs/fpga_validation_plan.md) and feed the
+   CSV to `memsim fpga-compare --fit`. Fetch counts must match exactly
+   before any time constant is fitted.
+3. **Widen the formula validation**: record the existing kernels at shapes
+   beyond MobileViT-S (for example the matmul template at DeiT-Tiny's 197
+   tokens and Swin-T's widths) so the extrapolated knees of Stage 12 become
+   replayed ones. Then chain kernels on one `cache_unit` (the real answer to
+   residency), and Stage 15 (two chips).
+
+Not started: **Stage 15** (two-chip layer split). The design is in
+`docs/memsim_design_notes.md`; the per-layer activation sizes it needs are
+now available from `ipu_memsim.netstats`.
+
+Waiting for others: the **hybrid CNN-ViT** network file (run
+`scripts/export_layers.py` on a machine with torch; the script itself was
+not run here) and the **physical-AI** network file (the colleague's model).
 
 Before a PR: add `ipu-memsim` to the dependency lock inputs
 (`tools/update_requirements_lock.py`), and run `bazel test //...` on a
@@ -382,55 +456,68 @@ machine where torch installs.
 
 ## 9. For Ze'evi
 
-**What you can do from the menu now.** Start the app (two lines in section
-2). Pick MobileViT-S or a single kernel, pick the memory model, choose from
-a dropdown which parameter to sweep and over which values, optionally a
-second one for a heatmap, and press Run. You get the chart, the table, and
-for each layer type the fill time at which stall passes 10% (you can change
-the 10%). Every other parameter is on the page with its default, and a label
-telling you whether it is CONFIRMED by a document, ASSUMED by the tool, or
-UNKNOWN. You can save the experiment as a file and load it again, and the
-same file runs from the command line, so every chart in the thesis can be
-reproduced from the `spec.toml` saved next to it.
+**What you can run now** (commands in section 2; every result with its
+command is in `docs/results_log.md`):
 
-**What the first curves say.** At today's 2 MB, the heavy layers (the
-convolutions and the matmuls) lose under 10% even at 8,000 cycles per bank,
-except depthwise, which collapses somewhere between 4,000 and 8,000. The
-light layers (residual add, LayerNorm, reshape) are dominated by moving
-their data: residual add loses 12% already at 250 cycles. Making XMEM larger
-than 2 MB changes nothing for these kernels; 0.5 MB breaks the convolutions
-at any fill time. If activations can stay in XMEM between layers, most of
-the stall of the light layers disappears.
+- `memsim sensitivity`: which assumptions move the results, as a ranked
+  table.
+- `memsim knee`: the smallest XMEM, per layer type, beyond which more banks
+  do not help.
+- `memsim formulas`: closed-form working-set formulas per kernel, checked
+  against the replay.
+- `memsim netstats`: weights, activations and operations per layer type for
+  DeiT-Tiny, Swin-T and YOLOv8n, from their layer shapes alone.
+- `memsim fpga-compare`: model against measured cycles, with calibration of
+  the fill time; ready for the first FPGA CSV.
+- The browser menu and `memsim sweep --spec`, as before.
+- For the defense: `docs/model_walkthrough.md` (each model with a worked
+  example), `docs/code_map.md` (what each file does and the path of one
+  sweep), `docs/results_log.md`.
+
+**The ranked list for the architects** (Stage 10; spread = how far stall
+moves, in percentage points of ideal cycles, when only that assumption
+changes, at 2 MB and 2,111 cycles per bank):
+
+1. **Who assigns banks to tables, and by what rule?** (Q4; spread 20,102.)
+   With one bank per table the convolutions reload a bank on almost every
+   access; sharing by size or equally gives identical, good results.
+2. **Who sets `jump_back`, and what happens when a kernel returns to a
+   released page?** (Q8, Q5; spread 10,605.) Releasing too early is as bad
+   as too few banks.
+3. **How long does a bank fill take, at what clock?** (Q1; spreads 374 and
+   153.) A range is enough: the tool sweeps it.
+4. **Does a small table cost a full-bank transfer?** (Q9; spread 353.) Most
+   MobileViT-S tables are far smaller than a bank.
+5. **Between two layers, does data go to DRAM and back or stay in XMEM?**
+   (Q2; spread 102.) And can inputs be prefetched before a kernel starts
+   (Q3; spread 102)?
+6. Can wait: how far ahead the DMA prefetches (spread 19) and whether there
+   is more than one DMA channel (0.4).
+
+Also still structural, though not a number: is one `kernel.toml` region one
+table (Q7), and what the FPGA reports (Q15).
 
 **Which numbers are still placeholders.**
 
-- The fill time itself is no longer a placeholder: it is the swept axis.
-  The 2,111-cycle point is DRAMsim3's HBM2 answer, marked on the charts as
-  an anchor, not as the chip.
-- Still ASSUMED and able to move the curves: how banks are shared between
-  tables, `jump_back`, how far ahead the DMA prefetches (the tool uses 1
-  page; the spec allows more), one DMA at a time, the 1 ns clock, and that
-  each kernel is replayed on its own.
-- The convolution shapes and the layer counts in the MobileViT-S file are a
-  subset from the public architecture, so totals across the network are not
-  quotable yet.
-- The torch-based tests of the repo still cannot run on this Mac.
+- Every stall number is a toy-model number: it depends on the fill time
+  (swept; 2,111 is DRAMsim3's HBM2 answer, an anchor only) and on the
+  assumed bank sharing, `jump_back`, single DMA and 1 ns clock.
+- The knees and break-evens are for each kernel replayed alone, with data
+  going to DRAM and back.
+- The knees for DeiT-Tiny, Swin-T and YOLOv8n are extrapolated from formulas
+  checked on MobileViT-S shapes only. Their parameter and operation counts
+  are exact (they match the published totals), but the layer lists were
+  written by hand from the public architectures.
+- The MobileViT-S convolution list is still a subset.
+- The FPGA comparison has only seen synthetic data.
 
-**Questions for the team lead and the architects, structural ones first.**
+**What should wait.**
 
-1. Between two layers, does the output go to DRAM and come back, or stay in
-   XMEM for the next kernel? (Q2)
-2. Who decides how many banks each table gets, and by what rule? (Q4)
-3. When a kernel returns to a page whose bank was released, is it reloaded
-   from DRAM, or must the table keep enough banks? (Q5)
-4. What is a "table": is one `kernel.toml` region one table? LayerNorm has
-   11. (Q7)
-5. What does the FPGA report: a stall counter, per-bank request counters,
-   the fill time of a bank? (Q15)
-
-And two requests for a range, not a decision:
-
-6. What is the slowest and the fastest bank fill time you consider
-   realistic, and at what clock? (Q1)
-7. Which XMEM sizes and bank layouts are still open besides 16 x 1024 rows?
-   (Q6)
+- *For the FPGA:* any absolute stall number; the fill time and clock; whether
+  fetch counts match (which tests the structural assumptions); the constant
+  between ideal cycles and measured cycles.
+- *For the colleague:* the physical-AI network file (an empty template is in
+  `networks/`), and with it that family's table.
+- *For a machine with torch:* the hybrid CNN-ViT layer list, a check of the
+  three hand-written network files with `scripts/export_layers.py`, and the
+  repository's own golden tests.
