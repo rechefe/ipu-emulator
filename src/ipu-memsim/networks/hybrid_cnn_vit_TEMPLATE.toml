@@ -1,0 +1,28 @@
+# TEMPLATE, NOT FILLED IN: a hybrid CNN-ViT other than MobileViT (for example
+# EdgeNeXt-S or EfficientViT).
+#
+# Left empty on purpose. The brief asks for shapes from the public
+# architecture; for this family they were not available in a form that could
+# be checked here (no torch on this machine to run the reference model, and
+# the layer list was not reproduced from memory to avoid inventing shapes).
+# Fill it by running, on a machine with torch and timm:
+#
+#     python src/ipu-memsim/scripts/export_layers.py --timm edgenext_small \
+#         --input 1 3 256 256 --out src/ipu-memsim/networks/edgenext_small.toml
+#
+# and then `memsim netstats` checks the parameter total against the model's.
+name = "hybrid CNN-ViT (template, not filled in)"
+# published_params = ...        # from the model card; the table is checked against it
+
+# One [[layer]] per distinct layer shape. Fields:
+#   type   the row of the per-layer-type table: standard_conv, depthwise_conv,
+#          pointwise_conv, attention, mlp, normalization, elementwise, ...
+#   name   free text
+#   op     conv | linear | attention | layernorm | add | embedding | pool
+#   count  how many times this exact shape occurs
+#   conv:       kernel_size, stride, groups, in_channels, out_channels,
+#               height, width (of the input), affine (1 = bias, 2 = batch norm)
+#   linear:     in_features, out_features, tokens, bias
+#   attention:  tokens, heads, head_dim
+#   layernorm:  channels, tokens
+#   add:        elements, channels, tokens

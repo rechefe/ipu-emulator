@@ -1,0 +1,112 @@
+# DeiT-Tiny (pure ViT), 224x224 input. NETWORK-ONLY: no kernel in this repository
+# was run for these shapes.
+#
+# Every shape is ASSUMED from the public architecture: Touvron et al.,
+# "Training data-efficient image transformers & distillation through
+# attention" (2021), Table 1 (embedding 192, 3 heads, 12 layers, 5.7M
+# parameters), and the ViT layout it uses (patch 16, 14 x 14 + 1 class token =
+# 197 tokens, MLP ratio 4, a bias on every linear layer). The reference
+# implementation is `deit_tiny_patch16_224` in the timm library. The file was
+# written by hand from those, without running the model: check it with
+# scripts/export_layers.py on a machine with torch before quoting it.
+name = "DeiT-Tiny (public architecture, not replayed)"
+published_params = 5717416     # timm's deit_tiny_patch16_224; the paper rounds to 5.7M
+
+[[layer]]
+type = "patch_embed"
+name = "patch embedding conv 16x16 stride 16, 3->192 @224"
+op = "conv"
+kernel_size = 16
+stride = 16
+in_channels = 3
+out_channels = 192
+height = 224
+width = 224
+affine = 1
+count = 1
+
+[[layer]]
+type = "embedding"
+name = "class token + position embedding (197 x 192)"
+op = "embedding"
+elements = 38016
+count = 1
+
+[[layer]]
+type = "normalization"
+name = "LayerNorm 197x192 (2 per block)"
+op = "layernorm"
+channels = 192
+tokens = 197
+count = 24
+
+[[layer]]
+type = "mlp"
+name = "QKV projection 192->576"
+op = "linear"
+in_features = 192
+out_features = 576
+tokens = 197
+count = 12
+
+[[layer]]
+type = "attention"
+name = "self-attention, 197 tokens, 3 heads x 64"
+op = "attention"
+tokens = 197
+heads = 3
+head_dim = 64
+count = 12
+
+[[layer]]
+type = "mlp"
+name = "attention output projection 192->192"
+op = "linear"
+in_features = 192
+out_features = 192
+tokens = 197
+count = 12
+
+[[layer]]
+type = "mlp"
+name = "MLP fc1 192->768 (GELU)"
+op = "linear"
+in_features = 192
+out_features = 768
+tokens = 197
+count = 12
+
+[[layer]]
+type = "mlp"
+name = "MLP fc2 768->192"
+op = "linear"
+in_features = 768
+out_features = 192
+tokens = 197
+count = 12
+
+[[layer]]
+type = "elementwise"
+name = "residual add 197x192 (2 per block)"
+op = "add"
+elements = 37824
+channels = 192
+tokens = 197
+count = 24
+
+[[layer]]
+type = "normalization"
+name = "final LayerNorm"
+op = "layernorm"
+channels = 192
+tokens = 197
+count = 1
+
+[[layer]]
+type = "classifier"
+name = "head 192->1000"
+op = "linear"
+in_features = 192
+out_features = 1000
+tokens = 1
+count = 1

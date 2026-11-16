@@ -1,0 +1,14 @@
+# TEMPLATE, EMPTY ON PURPOSE: the physical-AI model family.
+#
+# This file waits for the shapes from Ze'evi's colleague. Nothing in it is
+# filled in, and nothing should be until the real layer list is available.
+# The fastest way to fill it is scripts/export_layers.py on the real model.
+name = "physical-AI model (template, waiting for the model)"
+# published_params = ...
+
+# Needed per distinct layer shape (one [[layer]] each):
+#   type   layer type (the row of the table it belongs to)
+#   name   free text
+#   op     conv | linear | attention | layernorm | add | embedding | pool
+#   count  how many times this exact shape occurs
+#   and the shape fields of its op, as listed in hybrid_cnn_vit_TEMPLATE.toml.

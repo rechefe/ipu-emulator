@@ -1,0 +1,697 @@
+# YOLOv8n (nano detector), 640x640 input, 80 classes. NETWORK-ONLY: no kernel
+# in this repository was run for these shapes.
+#
+# Every shape is ASSUMED from the public architecture: the Ultralytics
+# `yolov8.yaml` model definition at scale n (depth multiple 0.33, width
+# multiple 0.25): backbone Conv / C2f stages at 16, 32, 64, 128 and 256
+# channels with 1, 2, 2 and 1 bottlenecks, SPPF, the two-level top-down and
+# bottom-up head, and the decoupled Detect head on three scales (box branch 64
+# channels, class branch 80 channels). Ultralytics reports 3.2M parameters
+# (3,157,200). Written by hand from that definition, without running the
+# model: check it with scripts/export_layers.py before quoting it.
+#
+# Each Conv is convolution + batch norm + SiLU; `affine = 2` counts the batch
+# norm's scale and shift per output channel, `affine = 1` a plain bias (the
+# last convolution of each Detect branch). Upsampling and concatenation move
+# data but have no parameters and no multiplies; they are not listed. SiLU has
+# no kernel after a convolution in this repository (STATUS.md).
+name = "YOLOv8n (public architecture, not replayed)"
+published_params = 3157200
+
+[[layer]]
+type = "standard_conv"
+name = "P1: conv 3x3 stride 2, 3->16 @640x640"
+op = "conv"
+kernel_size = 3
+stride = 2
+in_channels = 3
+out_channels = 16
+height = 640
+width = 640
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "P2: conv 3x3 stride 2, 16->32 @320x320"
+op = "conv"
+kernel_size = 3
+stride = 2
+in_channels = 16
+out_channels = 32
+height = 320
+width = 320
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "C2f-2 cv1: conv 1x1 stride 1, 32->32 @160x160"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 32
+out_channels = 32
+height = 160
+width = 160
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "C2f-2 bottleneck convs: conv 3x3 stride 1, 16->16 @160x160"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 16
+out_channels = 16
+height = 160
+width = 160
+affine = 2
+count = 2
+
+[[layer]]
+type = "pointwise_conv"
+name = "C2f-2 cv2: conv 1x1 stride 1, 48->32 @160x160"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 48
+out_channels = 32
+height = 160
+width = 160
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "P3: conv 3x3 stride 2, 32->64 @160x160"
+op = "conv"
+kernel_size = 3
+stride = 2
+in_channels = 32
+out_channels = 64
+height = 160
+width = 160
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "C2f-4 cv1: conv 1x1 stride 1, 64->64 @80x80"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "C2f-4 bottleneck convs: conv 3x3 stride 1, 32->32 @80x80"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 32
+out_channels = 32
+height = 80
+width = 80
+affine = 2
+count = 4
+
+[[layer]]
+type = "pointwise_conv"
+name = "C2f-4 cv2: conv 1x1 stride 1, 128->64 @80x80"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 128
+out_channels = 64
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "P4: conv 3x3 stride 2, 64->128 @80x80"
+op = "conv"
+kernel_size = 3
+stride = 2
+in_channels = 64
+out_channels = 128
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "C2f-6 cv1: conv 1x1 stride 1, 128->128 @40x40"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 128
+out_channels = 128
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "C2f-6 bottleneck convs: conv 3x3 stride 1, 64->64 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 40
+width = 40
+affine = 2
+count = 4
+
+[[layer]]
+type = "pointwise_conv"
+name = "C2f-6 cv2: conv 1x1 stride 1, 256->128 @40x40"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 256
+out_channels = 128
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "P5: conv 3x3 stride 2, 128->256 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 2
+in_channels = 128
+out_channels = 256
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "C2f-8 cv1: conv 1x1 stride 1, 256->256 @20x20"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 256
+out_channels = 256
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "C2f-8 bottleneck convs: conv 3x3 stride 1, 128->128 @20x20"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 128
+out_channels = 128
+height = 20
+width = 20
+affine = 2
+count = 2
+
+[[layer]]
+type = "pointwise_conv"
+name = "C2f-8 cv2: conv 1x1 stride 1, 384->256 @20x20"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 384
+out_channels = 256
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "SPPF cv1: conv 1x1 stride 1, 256->128 @20x20"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 256
+out_channels = 128
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "SPPF cv2: conv 1x1 stride 1, 512->256 @20x20"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 512
+out_channels = 256
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "pool"
+name = "SPPF: three 5x5 max pools @20x20"
+op = "pool"
+in_elements = 153600
+out_elements = 153600
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "head C2f-12 cv1: conv 1x1 stride 1, 384->128 @40x40"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 384
+out_channels = 128
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "head C2f-12 bottleneck convs: conv 3x3 stride 1, 64->64 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 40
+width = 40
+affine = 2
+count = 2
+
+[[layer]]
+type = "pointwise_conv"
+name = "head C2f-12 cv2: conv 1x1 stride 1, 192->128 @40x40"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 192
+out_channels = 128
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "head C2f-15 cv1: conv 1x1 stride 1, 192->64 @80x80"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 192
+out_channels = 64
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "head C2f-15 bottleneck convs: conv 3x3 stride 1, 32->32 @80x80"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 32
+out_channels = 32
+height = 80
+width = 80
+affine = 2
+count = 2
+
+[[layer]]
+type = "pointwise_conv"
+name = "head C2f-15 cv2: conv 1x1 stride 1, 96->64 @80x80"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 96
+out_channels = 64
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "head down 16: conv 3x3 stride 2, 64->64 @80x80"
+op = "conv"
+kernel_size = 3
+stride = 2
+in_channels = 64
+out_channels = 64
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "head C2f-18 cv1: conv 1x1 stride 1, 192->128 @40x40"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 192
+out_channels = 128
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "head C2f-18 bottleneck convs: conv 3x3 stride 1, 64->64 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 40
+width = 40
+affine = 2
+count = 2
+
+[[layer]]
+type = "pointwise_conv"
+name = "head C2f-18 cv2: conv 1x1 stride 1, 192->128 @40x40"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 192
+out_channels = 128
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "head down 19: conv 3x3 stride 2, 128->128 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 2
+in_channels = 128
+out_channels = 128
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "head C2f-21 cv1: conv 1x1 stride 1, 384->256 @20x20"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 384
+out_channels = 256
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "head C2f-21 bottleneck convs: conv 3x3 stride 1, 128->128 @20x20"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 128
+out_channels = 128
+height = 20
+width = 20
+affine = 2
+count = 2
+
+[[layer]]
+type = "pointwise_conv"
+name = "head C2f-21 cv2: conv 1x1 stride 1, 384->256 @20x20"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 384
+out_channels = 256
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect box @80 a: conv 3x3 stride 1, 64->64 @80x80"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect box @80 b: conv 3x3 stride 1, 64->64 @80x80"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "detect box @80 out: conv 1x1 stride 1, 64->64 @80x80"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 80
+width = 80
+affine = 1
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect class @80 a: conv 3x3 stride 1, 64->80 @80x80"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 64
+out_channels = 80
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect class @80 b: conv 3x3 stride 1, 80->80 @80x80"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 80
+out_channels = 80
+height = 80
+width = 80
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "detect class @80 out: conv 1x1 stride 1, 80->80 @80x80"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 80
+out_channels = 80
+height = 80
+width = 80
+affine = 1
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect box @40 a: conv 3x3 stride 1, 128->64 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 128
+out_channels = 64
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect box @40 b: conv 3x3 stride 1, 64->64 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "detect box @40 out: conv 1x1 stride 1, 64->64 @40x40"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 40
+width = 40
+affine = 1
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect class @40 a: conv 3x3 stride 1, 128->80 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 128
+out_channels = 80
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect class @40 b: conv 3x3 stride 1, 80->80 @40x40"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 80
+out_channels = 80
+height = 40
+width = 40
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "detect class @40 out: conv 1x1 stride 1, 80->80 @40x40"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 80
+out_channels = 80
+height = 40
+width = 40
+affine = 1
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect box @20 a: conv 3x3 stride 1, 256->64 @20x20"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 256
+out_channels = 64
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect box @20 b: conv 3x3 stride 1, 64->64 @20x20"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "detect box @20 out: conv 1x1 stride 1, 64->64 @20x20"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 64
+out_channels = 64
+height = 20
+width = 20
+affine = 1
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect class @20 a: conv 3x3 stride 1, 256->80 @20x20"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 256
+out_channels = 80
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "detect class @20 b: conv 3x3 stride 1, 80->80 @20x20"
+op = "conv"
+kernel_size = 3
+stride = 1
+in_channels = 80
+out_channels = 80
+height = 20
+width = 20
+affine = 2
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "detect class @20 out: conv 1x1 stride 1, 80->80 @20x20"
+op = "conv"
+kernel_size = 1
+stride = 1
+in_channels = 80
+out_channels = 80
+height = 20
+width = 20
+affine = 1
+count = 1
+
+[[layer]]
+type = "embedding"
+name = "DFL: fixed 1x1 conv over 16 bins"
+op = "embedding"
+elements = 16
+count = 1

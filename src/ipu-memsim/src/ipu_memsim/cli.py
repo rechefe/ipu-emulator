@@ -7,6 +7,7 @@
     memsim sensitivity --spec SENSITIVITY.toml [--out DIR]
     memsim knee --spec NUM_BANKS_SWEEP.toml [--out DIR]
     memsim formulas [--traces DIR] [--bank-rows N ...]
+    memsim netstats NETWORK.toml [NETWORK.toml ...]
     memsim params  [MODEL]
     memsim network NETWORK.toml --out DIR [--configs FILE.toml ...]
     memsim dram-measure --dramsim3 PROGRAM --ini CONFIG.ini [--out FILE.toml]
@@ -308,6 +309,50 @@ def _formulas(args: argparse.Namespace) -> int:
     return 0
 
 
+def _netstats(args: argparse.Namespace) -> int:
+    """``memsim netstats``: the network-only table of each network file, side by side."""
+    import csv
+
+    from ipu_memsim.netstats import network_table
+
+    out = _user_path(args.out) if args.out else _workspace() / "memsim-out" / "netstats"
+    out.mkdir(parents=True, exist_ok=True)
+    lines = ["# Network-only tables", "",
+             "No kernel was run for these networks. Weights and activations in bytes at one byte per element.",
+             "`knee (banks)` is EXTRAPOLATED from formulas validated on MobileViT-S shapes, not replayed;",
+             "it is the largest value among the type's layers a formula covers (`covered`).", ""]  # fmt: skip
+    with open(out / "netstats.csv", "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["network", "type", "layers", "weight_bytes", "input_bytes", "output_bytes", "operations",
+                         "operations_per_byte", "knee_banks_extrapolated", "covered"])  # fmt: skip
+        for path in args.networks:
+            table = network_table(_user_path(path), args.bank_rows)
+            published = table["published_params"]
+            check = "no published count given" if not published else (
+                f"published {published:,}: {100 * (table['total_params'] / published - 1):+.2f}%")  # fmt: skip
+            lines += [f"## {table['name']}", "", f"Parameters counted: {table['total_params']:,} ({check}).", "",
+                      "| layer type | layers | weights (bytes) | input (bytes) | output (bytes) | operations | ops per byte | knee (banks, extrapolated) | covered |",
+                      "|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
+            for row in table["rows"]:
+                writer.writerow([table["name"], *row.values()])
+                knee = "not covered" if row["knee_banks"] is None else row["knee_banks"]
+                lines.append(f"| {row['type']} | {row['layers']} | {row['weight_bytes']:,} | {row['input_bytes']:,} | "
+                             f"{row['output_bytes']:,} | {row['operations']:,} | {row['operations_per_byte']:.1f} | {knee} | {row['covered']} |")  # fmt: skip
+            reasons = sorted({f"{item['reason']}" for item in table["not_covered"]})
+            lines += [
+                "",
+                f"Not covered by a formula ({len(table['not_covered'])} layer shapes): "
+                + ("; ".join(reasons) or "none")
+                + ".",
+                "",
+            ]
+    (out / "netstats.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("\n".join(lines))
+    print(out / "netstats.md")
+    print(out / "netstats.csv")
+    return 0
+
+
 def _network(args: argparse.Namespace) -> int:
     from ipu_memsim.network import run_network
 
@@ -357,7 +402,7 @@ def _params(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one block per command)
     parser = argparse.ArgumentParser(prog="memsim", description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -406,6 +451,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     frm.add_argument("--out", help="folder for validation.csv (default: memsim-out/formulas)")
     frm.set_defaults(run=_formulas)
+
+    nst = commands.add_parser(
+        "netstats", help="network-only tables: weights, activations, operations, extrapolated knee"
+    )
+    nst.add_argument(
+        "networks", nargs="+", help="network files (TOML) whose layers have an op and a shape"
+    )
+    nst.add_argument("--bank-rows", type=int, default=1024)
+    nst.add_argument(
+        "--out", help="folder for netstats.md and netstats.csv (default: memsim-out/netstats)"
+    )
+    nst.set_defaults(run=_netstats)
 
     par = commands.add_parser("params", help="list every tunable parameter (the registry)")
     par.add_argument("model", nargs="?", help="only this model's parameters")

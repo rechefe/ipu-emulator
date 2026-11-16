@@ -123,3 +123,72 @@ def test_knees_by_hand():
     with pytest.raises(ValueError, match="num_banks alone"):
         table.params.clear()
         knees(table)
+
+
+# -- network-only tables ---------------------------------------------------------------
+
+
+def test_layer_stats_by_hand():
+    from ipu_memsim.netstats import LayerStats, layer_stats
+
+    # 3x3, 16 -> 32 on 8x8 with a batch norm: 9*16*32 weights + 2*32; one multiply per weight and pixel.
+    conv = {
+        "op": "conv",
+        "kernel_size": 3,
+        "in_channels": 16,
+        "out_channels": 32,
+        "height": 8,
+        "width": 8,
+        "affine": 2,
+    }
+    assert layer_stats(conv) == LayerStats(4608 + 64, 16 * 64, 32 * 64, 4608 * 64)
+    # Stride 2 quarters the output map; depthwise has one input channel per filter.
+    depthwise = {**conv, "out_channels": 16, "groups": 16, "stride": 2, "affine": 0}
+    assert layer_stats(depthwise) == LayerStats(144, 16 * 64, 16 * 16, 144 * 16)
+    linear = {"op": "linear", "in_features": 192, "out_features": 768, "tokens": 197}
+    assert layer_stats(linear) == LayerStats(192 * 768 + 768, 192 * 197, 768 * 197, 192 * 768 * 197)
+    assert layer_stats({**linear, "bias": False}).params == 192 * 768
+    attention = {"op": "attention", "tokens": 197, "heads": 3, "head_dim": 64}
+    assert layer_stats(attention) == LayerStats(0, 3 * 197 * 192, 197 * 192, 2 * 3 * 197 * 197 * 64)
+    assert layer_stats({"op": "layernorm", "channels": 192, "tokens": 197}).params == 384
+    with pytest.raises(ValueError, match="unknown op"):
+        layer_stats({"op": "magic"})
+
+
+def test_the_network_files_reproduce_the_published_parameter_counts():
+    """A hand-written layer list that misses or doubles a layer would not add
+    up to the model's published total. All three do, exactly."""
+    from pathlib import Path
+
+    from ipu_memsim.netstats import network_table
+
+    folder = Path(__file__).resolve().parents[1] / "networks"
+    for name, published in [("deit_tiny", 5717416), ("swin_t", 28288354), ("yolov8n", 3157200)]:
+        table = network_table(folder / f"{name}.toml")
+        assert table["published_params"] == published
+        assert table["total_params"] == published, name
+        assert all(row["operations_per_byte"] >= 0 for row in table["rows"])
+    # What no formula covers is listed, never dropped.
+    yolo = network_table(folder / "yolov8n.toml")
+    reasons = {item["reason"] for item in yolo["not_covered"]}
+    assert "no formula for a stride-2 convolution" in reasons
+    assert any("over the convolution kernels' limit" in reason for reason in reasons)
+    # The templates hold no layers: nothing is invented for them.
+    for template in ("hybrid_cnn_vit_TEMPLATE", "physical_ai_TEMPLATE"):
+        assert network_table(folder / f"{template}.toml")["rows"] == []
+
+
+def test_layer_knee_uses_the_validated_formulas_and_says_when_it_cannot():
+    from ipu_memsim.netstats import layer_knee
+
+    # A linear layer is the matmul kernel: 197 tokens (2 groups), 192 -> 768.
+    banks, note = layer_knee(
+        {"op": "linear", "in_features": 192, "out_features": 768, "tokens": 197}
+    )
+    assert (
+        banks == kernel_banks(formulas.matmul_x128({"m": 197, "k": 192, "n": 768}))
+        and "matmul" in note
+    )
+    assert layer_knee({"op": "conv", "kernel_size": 3, "stride": 2, "in_channels": 16, "out_channels": 32,
+                       "height": 64, "width": 64})[0] is None  # fmt: skip
+    assert layer_knee({"op": "pool"}) == (None, "no formula for op 'pool'")

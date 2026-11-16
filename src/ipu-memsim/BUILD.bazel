@@ -121,6 +121,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_formulas",
     srcs = ["test/test_formulas.py"],
+    data = [":configs"],
     deps = [
         ":ipu_memsim_lib",
         ":test_support",
