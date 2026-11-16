@@ -130,6 +130,24 @@ py_pytest_test(
     ],
 )
 
+# Sweeps, the SVG plot, the network table and the DRAM trace export.
+py_pytest_test(
+    name = "test_studies",
+    size = "medium",
+    srcs = ["test/test_studies.py"],
+    data = [
+        ":configs",
+        "//kernels:tree",
+    ],
+    deps = [
+        ":ipu_memsim_lib",
+        ":test_support",
+        "//src/ipu-kernels:ipu_kernels_all",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
 # Ruff lint and format over this package's Python files (tools/lint.bzl).
 ruff_test(
     name = "ruff",
