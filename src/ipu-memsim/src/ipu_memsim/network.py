@@ -49,7 +49,7 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-__all__ = ["LayerResult", "run_network"]
+__all__ = ["LayerResult", "run_network", "trace_for"]
 
 
 @dataclass
@@ -87,7 +87,7 @@ def _slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_")
 
 
-def _trace_for(layer: dict[str, Any], traces: Path, commit: str) -> Trace:
+def trace_for(layer: dict[str, Any], traces: Path, commit: str) -> Trace:
     """The layer's trace: loaded when already recorded, else recorded and saved."""
     values = layer.get("values") or {}
     label = "_".join(
@@ -121,7 +121,7 @@ def _measure(
         int(layer.get("count", 1)),
     )
     try:
-        trace = _trace_for(layer, traces, commit)
+        trace = trace_for(layer, traces, commit)
     except Exception as error:  # noqa: BLE001 (any failure becomes the layer's row)
         result.error = f"{type(error).__name__}: {str(error).splitlines()[0][:200]}"
         return result

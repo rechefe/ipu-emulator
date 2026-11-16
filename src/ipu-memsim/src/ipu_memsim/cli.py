@@ -2,7 +2,9 @@
 
     memsim record  KERNEL [--case NAME] [--set KEY=VALUE ...] [--format FMT] [--out FILE]
     memsim replay  TRACE --config FILE.toml [--json]
+    memsim sweep   --spec EXPERIMENT.toml [--out DIR]
     memsim sweep   TRACE --out DIR
+    memsim params  [MODEL]
     memsim network NETWORK.toml --out DIR [--configs FILE.toml ...]
     memsim dram-measure --dramsim3 PROGRAM --ini CONFIG.ini [--out FILE.toml]
 
@@ -139,9 +141,53 @@ def _replay(args: argparse.Namespace) -> int:
 
 
 def _sweep(args: argparse.Namespace) -> int:
+    if args.spec:
+        return _experiment(args)
+    if not args.trace or not args.out:
+        raise SystemExit("memsim sweep: give --spec FILE.toml, or TRACE and --out DIR")
     from ipu_memsim.sweep import run_sweeps
 
     for path in run_sweeps(load_trace(_user_path(args.trace)), _user_path(args.out)):
+        print(path)
+    return 0
+
+
+def _experiment(args: argparse.Namespace) -> int:
+    """``memsim sweep --spec``: run an experiment file and save its results."""
+    from ipu_memsim import experiment
+
+    spec = experiment.load_spec(_user_path(args.spec))
+    size = experiment.grid_size(spec)
+    limit = int(spec.get("report", {}).get("max_replays", experiment.DEFAULT_MAX_REPLAYS))
+    workload = experiment.load_workload(spec, _workspace(), _commit())
+    replays = size * sum(1 for item in workload if item.trace is not None)
+    if replays > limit and not args.yes:
+        raise SystemExit(f"this grid needs {replays} replays (limit {limit}); pass --yes to run it")
+
+    def progress(done: int, total: int) -> None:
+        if done % 50 == 0 or done == total:
+            print(f"\r{done}/{total} replays", end="", file=sys.stderr, flush=True)
+
+    table = experiment.run_sweep(spec, _workspace(), workload=workload, progress=progress)
+    print(file=sys.stderr)
+    out = _user_path(args.out) if args.out else _workspace() / "memsim-out" / table.spec["name"]
+    written = experiment.write_results(table, out)
+    names = [p.name for p in table.params]
+    print(
+        f"{'group':<16}"
+        + "".join(f"{n:>22}" for n in names)
+        + f"{'ideal':>12}{'stall':>12}{'stall %':>10}"
+    )
+    for row in table.rows:
+        percent = "n/a" if row["stall_percent"] is None else f"{row['stall_percent']:.2f}"
+        stall = "n/a" if row["stall_cycles"] is None else row["stall_cycles"]
+        print(f"{row['group']:<16}" + "".join(f"{row[n]:>22g}" if isinstance(row[n], float) else f"{row[n]!s:>22}" for n in names)
+              + f"{row['ideal_cycles']:>12}{stall!s:>12}{percent:>10}")  # fmt: skip
+    if table.placeholders:
+        print("TOY MODEL: placeholder values in use for "
+              + ", ".join(f"{p.name} ({p.status})" for p in table.placeholders))  # fmt: skip
+    print(f"{table.replays} replays in {table.seconds:.1f} s")
+    for path in written:
         print(path)
     return 0
 
@@ -183,6 +229,18 @@ def _dram_measure(args: argparse.Namespace) -> int:
     return 0
 
 
+def _params(args: argparse.Namespace) -> int:
+    from ipu_memsim.params import MODEL_KINDS, params_for
+
+    for kind in [args.model] if args.model else MODEL_KINDS:
+        print(f"[{kind}]")
+        for p in params_for(kind):
+            limits = f"{p.low:g}..{p.high:g}" if p.low is not None else "/".join(p.choices)
+            print(f"  {p.name:<24}{p.status:<10}default {p.default!s:<16}{p.unit:<11}{limits}")
+            print(f"  {'':<24}{p.description} [{p.source}]")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="memsim", description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -203,9 +261,17 @@ def build_parser() -> argparse.ArgumentParser:
     rep.set_defaults(run=_replay)
 
     swp = commands.add_parser("sweep", help="sweep bank count, XMEM size and miss penalty")
-    swp.add_argument("trace")
-    swp.add_argument("--out", required=True, help="folder for the CSV and SVG files")
+    swp.add_argument("trace", nargs="?", help="a trace: runs the built-in Stage 3 sweeps on it")
+    swp.add_argument(
+        "--spec", help="an experiment file (TOML): which parameters to sweep, over what"
+    )
+    swp.add_argument("--out", help="folder for the results (default: memsim-out/<experiment name>)")
+    swp.add_argument("--yes", action="store_true", help="run a grid larger than the limit")
     swp.set_defaults(run=_sweep)
+
+    par = commands.add_parser("params", help="list every tunable parameter (the registry)")
+    par.add_argument("model", nargs="?", help="only this model's parameters")
+    par.set_defaults(run=_params)
 
     net = commands.add_parser("network", help="per-layer-type table of a network")
     net.add_argument("network", help="a network description (TOML)")

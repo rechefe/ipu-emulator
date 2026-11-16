@@ -27,9 +27,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ipu_memsim.cache_unit import ROW_BYTES, CacheUnit
+from ipu_memsim.cache_unit import CacheUnit
 from ipu_memsim.dram import make_dram
 from ipu_memsim.models import AllMiss, Banked, Cache, Ideal, MemoryModel, PageFirstTouch
+from ipu_memsim.params import ROW_BYTES, validate_config
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -58,15 +59,13 @@ def make_model(config: Mapping[str, Any]) -> MemoryModel:
     """The model a config describes (``{"model": {...}, "dram": {...}}``).
 
     Raises:
-        ValueError: No ``[model]``, an unknown ``kind``, or a key the model
-            does not take.
+        ValueError: No ``[model]``, an unknown ``kind``, a key the parameter
+            registry (``ipu_memsim.params``) does not list for the model, or
+            a value outside its range.
     """
-    if "model" not in config:
-        raise ValueError("the config has no [model] table")
+    validate_config(config)  # every key and value, against the parameter registry
     arguments = dict(config["model"])
-    kind = arguments.pop("kind", None)
-    if kind not in KINDS:
-        raise ValueError(f"unknown model kind {kind!r} (kinds: {', '.join(KINDS)})")
+    kind = arguments.pop("kind")
     if kind == "cache_unit":
         arguments["dram"] = make_dram(config.get("dram"))
     if kind == "cache" and arguments.get("size_rows") == "inf":

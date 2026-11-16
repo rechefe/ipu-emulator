@@ -10,7 +10,7 @@ import pytest
 from support import make_trace
 
 from ipu_memsim.cache_unit import CacheUnit
-from ipu_memsim.dram import FixedDram, TableDram, make_dram
+from ipu_memsim.dram import BankFillDram, FixedDram, TableDram, make_dram
 from ipu_memsim.replay import replay
 from ipu_memsim.trace import READ, WRITE
 
@@ -176,7 +176,8 @@ def test_dram_backends():
     assert table.transfer_cycles(64, False) == 200
     assert table.transfer_cycles(544, False) == 850  # halfway between
     assert table.transfer_cycles(2048, True) == 3000  # beyond the table: by its last rate
-    assert isinstance(make_dram(None), FixedDram)
+    assert isinstance(make_dram(None), BankFillDram)
+    assert isinstance(make_dram({"kind": "fixed"}), FixedDram)
     assert make_dram({"kind": "table", "fill": {"1024": 1100}}).transfer_cycles(1024, False) == 1100
     with pytest.raises(ValueError, match="unknown \\[dram\\] kind"):
         make_dram({"kind": "magic"})

@@ -65,7 +65,10 @@ def test_a_cache_that_never_hits_stalls_accesses_times_penalty(trace):
         {"model": {"kind": "page_first_touch", "page_rows": 1024, "penalty": 100}},
         {"model": {"kind": "banked", "num_banks": 4, "busy_cycles": 3}},
         {"model": {"kind": "cache", "size_rows": 64, "line_rows": 4, "assoc": 2}},
-        {"model": {"kind": "cache_unit", "num_banks": 4}, "dram": {"rows_per_cycle": 0.5}},
+        {
+            "model": {"kind": "cache_unit", "num_banks": 4},
+            "dram": {"kind": "fixed", "rows_per_cycle": 0.5},
+        },
     ],
 )
 def test_the_same_trace_and_config_give_the_same_result(config):
@@ -165,7 +168,7 @@ def test_config_errors_name_the_problem():
         make_model({"model": {"kind": "magic"}})
     with pytest.raises(ValueError, match="no \\[model\\]"):
         make_model({})
-    with pytest.raises(ValueError, match="bogus"):
+    with pytest.raises(ValueError, match="no key 'bogus'"):
         make_model({"model": {"kind": "all_miss", "penalty": 1, "bogus": 2}})
     assert make_model({"model": {"kind": "cache", "size_rows": "inf"}}).size_rows is None
     assert rows_for_bytes(2 * 2**20) == 16384

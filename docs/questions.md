@@ -1,38 +1,51 @@
 # Open questions for the memory what-if tool
 
-Ranked by how much the answer changes the tool's numbers. Each has the default
-the tool uses today (ASSUMED) so work can continue. "OQ-n" refers to
-`docs/content/requirements/open-questions.md`.
+Two kinds of question. **Structural** questions change how the model works,
+so they need an answer. **Swept parameters** are only numbers: the tool
+sweeps them, the thesis reports the curve, and the real chip is one point on
+it; for these the architects are asked for a realistic range only.
 
-## A. Change the results by a large factor
+Each entry has the default the tool uses today (ASSUMED) so work can
+continue. "OQ-n" refers to `docs/content/requirements/open-questions.md`.
+Every parameter named here is in the parameter registry
+(`ipu_memsim/params.py`; `memsim params` prints it).
+
+## A. Structural: ask these first
 
 | # | Question | Who | Tool default today (ASSUMED) |
 |---|---|---|---|
-| Q1 | **DRAM/HBM speed as the DMA sees it.** How many cycles does it take to fill one 1024-row bank (latency + bandwidth)? Which HBM generation, how many channels, what clock (OQ-16 mentions 1 GHz)? | Architects | `[dram] latency_cycles = 100`, `rows_per_cycle = 1.0` (one 128-byte row per cycle = 128 GB/s at 1 GHz). Invented placeholder, not a measurement. |
-| Q2 | **Does data go back to DRAM between kernels?** OQ-11 (unassigned) asks how one kernel hands a table to the next inside XMEM. If outputs stay in XMEM, the next layer's input costs no DRAM read. | Cache-unit owner | Every kernel is replayed alone: inputs come from DRAM, outputs go to DRAM. |
-| Q3 | **Is the input prefetched before the kernel starts?** CU-16 allows the DMA to fill banks before the context is active. How much of that is realistic depends on free banks during the previous kernel. | Architects | `prefetch_before_start = false` (cold start); a switch turns it on. |
-| Q4 | **How many banks does each table get, and who decides?** `xmem_bank_list` is per table (cache-unit.md §5). 16 banks shared by, say, input + weights + output. | Team lead / SW | Proportional to table size, at least 1 each (`bank_allocation = "proportional"`), or an explicit list. |
-| Q5 | **What happens when a kernel returns to a page whose bank was released** (weights re-read for every output row, `repetitions`)? Reload from DRAM each time, or must the table be given enough banks to stay resident? | Cache-unit owner | Reload from DRAM, counted as a miss ("re-fetch"). The report shows the count so the cost is visible. |
-| Q6 | **Is 16 x 128 KB the layout being frozen**, or are other splits on the table (more, smaller banks; bigger banks)? Which sizes should the thesis sweep? | Team lead | Sweeps cover 4 to 64 banks and 256 to 4096 rows per bank. |
+| Q2 | **Between two layers, does the output go to DRAM and come back, or stay in XMEM for the next kernel?** OQ-11 (unassigned) asks how one kernel hands a table to the next. | Cache-unit owner | `residency = "dram_roundtrip"` (pessimistic). The switch `stays_in_xmem` shows the other case; both are in the per-layer-type table. |
+| Q4 | **Who decides how many banks each table gets, and by what rule?** `xmem_bank_list` is per table (cache-unit.md section 5). | Team lead / SW | `bank_allocation = "proportional"`: by table size, at least 1 each; or an explicit list. |
+| Q5 | **What happens when a kernel returns to a page whose bank was released** (weights re-read for every output row, `repetitions`)? Reload from DRAM, or must the table keep enough banks? | Cache-unit owner | Reload from DRAM, counted as `conflicts` / `refetches`. The spec has no eviction (CU-20). |
+| Q7 | **What is a "table"?** Is one `kernel.toml` region one table (OQ-8, unassigned)? LayerNorm declares 11 regions and softmax 6, so they cannot run in 4 banks and LayerNorm uses 11 of 16. | Architects | One region = one table; offset = row minus the region's base row. |
+| Q15 | **What does the FPGA report?** Stall counter, per-bank request counters, the fill time of a bank, a cycle counter? Which settings change without a rebuild? | FPGA owner | Not needed by the model; needed to check it (test plan in `memsim_design_notes.md`). |
+| Q19 | **Which input tables are weights and which are activations?** Needed only for `stays_in_xmem`: weights always come from DRAM. | Kernel authors | By region name (`weight_tables`), overridable per layer in the network file (`weights = [...]`). For the single-stream matmul kernels this is a guess (see STATUS.md). |
+| Q3 | **Is the input prefetched before the kernel starts?** CU-16 allows it. | Architects | `prefetch_before_start = false` (cold start). |
+| Q8 | **Who sets `jump_back` per kernel**, and to what? | SW / architects | `jump_back = "auto"`: the largest look-back the kernel actually makes. |
 
-## B. Change the results moderately
+## B. Swept parameters: ask for a realistic range only
+
+| # | Parameter | Registry name | Swept over | Anchor point |
+|---|---|---|---|---|
+| Q1 | Cycles to fill one 1024-row bank from HBM | `fill_cycles_per_bank` (or `fill_ns_per_bank` + `clock_ns`) | 0, 250, 500, 1000, 2111, 4000, 8000 | 2111 cycles: DRAMsim3 `HBM2_8Gb_x128`, one channel, 1 ns clock. A simulator's answer for an assumed access pattern, not a measurement. |
+| Q1b | Chip clock period | `clock_ns` | not swept; converts ns to cycles | 1 ns, ASSUMED (the emulator defines no clock; OQ-16 speaks of 1 GHz) |
+| Q6 | XMEM size and layout: is 16 x 1024 rows final? | `xmem_mb`, `num_banks`, `bank_rows` | 0.5, 1, 2, 4, 8 MB | 16 banks x 1024 rows = 2 MB (cache-unit.md section 4) |
+| Q20 | How far ahead the DMA prefetches | `prefetch_distance` | 0, 1, all banks | The spec's DMA (section 8.1) fills every free bank of the table; the tool's default of 1 is the cautious choice. |
+| Q10 | DMA transfers at the same time | `dma_channels` | 1, 2, 4 | 1, ASSUMED |
+
+What to ask for Q1 and Q6: "what is the slowest and the fastest bank fill you
+consider realistic, and which bank layouts are still on the table?" The
+answer picks the part of the curve that matters.
+
+## C. Smaller modelling questions
 
 | # | Question | Who | Tool default today |
 |---|---|---|---|
-| Q7 | **Row address to table mapping** (OQ-8, unassigned). Is a `kernel.toml` region the right "table"? Kernels pin regions at fixed rows (for example `residual_add` at rows 0, 1024, 2048). | Architects | One region = one table; offset = row minus the region's base row. |
-| Q8 | **Who sets `jump_back` per kernel**, and to what? | SW / architects | Derived from the trace: the largest look-back the kernel actually makes (or a fixed value from the config). |
-| Q9 | **Partial banks.** A table of 64 rows occupies a whole 1024-row bank. Does the DMA move 64 rows or 1024? | Cache-unit owner | Only the table's rows are moved. |
-| Q10 | **One DMA or several?** Can a fill and a drain run at the same time? | Cache-unit owner | One DMA, first come first served (`dma_channels = 1`). |
-| Q11 | **Load-after-store in the pipeline** (OQ-17): extra stall cycles when a word loads a row an older word still has to store. | Architects | Not modelled (0 cycles). |
+| Q9 | **Partial banks.** A table of 64 rows occupies a whole bank. Does the DMA move 64 rows or 1024, and does a transfer have a fixed start-up cost? | Cache-unit owner | Only the table's rows, in proportion (`fill_whole_bank = false`). |
+| Q11 | **Load-after-store in the pipeline** (OQ-17): extra stall cycles. | Architects | Not modelled. |
 | Q12 | **Stall decision timing** (OQ-16, IPU-MEM-12): one extra cycle per miss? | Architects | Not modelled. |
-| Q13 | **FP32 kernels.** Most kernels in the repo run only in `FP32`, an emulator-only format with 512-byte rows. What will their hardware (8-bit) row counts be? | Kernel authors | One emulator row = one hardware row (same 128 elements). |
-| Q14 | **`ST.AAQ` spill** (OQ-35): in 8-bit formats the emulator writes 4 rows per store. | AaQ owner | The trace records what the emulator did; in FP32 it is one row. |
-
-## C. Needed for validation, not for the model
-
-| # | Question | Who |
-|---|---|---|
-| Q15 | **What does the FPGA build expose?** Stall counters, per-bank hit/miss counters, a cycle counter, a trace port? Which memory settings can be changed without a rebuild (bank count, DMA rate, `jump_back`)? | FPGA owner |
-| Q16 | **Which requirement numbers exist?** The repo has IPU-MEM-1 to 12 and 20 to 23; there is no IPU-MEM-13 to 19 (the brief expected 1 to 20). Is something missing or is the numbering just sparse? | Requirements owner |
-| Q17 | **The profiling emulator of the project book** (per-region address sets, peak lookahead in lines) is not on `master`. Is it on another branch? The tool computes its own working-set number from the trace instead. | Ze'evi |
-| Q18 | **Second chip.** Do two chips share one DRAM/HBM, and how do they exchange tensors? | Team lead |
+| Q13 | **FP32 kernels.** Most kernels run only in `FP32`, an emulator-only format with 512-byte rows. What are their hardware row counts? | Kernel authors | One emulator row = one hardware row (128 elements). |
+| Q14 | **`ST.AAQ` spill** (OQ-35): 4 rows per store in 8-bit formats. | AaQ owner | The trace records what the emulator did. |
+| Q16 | The repo has IPU-MEM-1 to 12 and 20 to 23; is 13 to 19 missing or just unused? | Requirements owner | - |
+| Q17 | The project book's profiling emulator (peak lookahead per region) is not on `master`. | Ze'evi | The tool computes its own working set from the trace. |
+| Q18 | **Second chip.** Shared DRAM/HBM? How do chips exchange tensors? | Team lead | Design note only. |

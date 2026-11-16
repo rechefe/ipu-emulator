@@ -30,7 +30,7 @@ filegroup(
 # Example model configs and network descriptions.
 filegroup(
     name = "configs",
-    srcs = glob(["configs/*.toml", "networks/*.toml"]),
+    srcs = glob(["configs/*.toml", "networks/*.toml", "experiments/*.toml"]),
 )
 
 # The memory what-if tool: trace recorder, replay engine, memory models.
@@ -100,6 +100,20 @@ py_pytest_test(
         ":test_support",
         requirement("numpy"),
         requirement("pytest"),
+    ],
+)
+
+# The parameter registry, the fill-time model, the residency switch and the
+# experiment API (run_sweep), on hand-made traces.
+py_pytest_test(
+    name = "test_experiment",
+    srcs = ["test/test_experiment.py"],
+    deps = [
+        ":ipu_memsim_lib",
+        ":test_support",
+        requirement("numpy"),
+        requirement("pytest"),
+        requirement("tomli"),
     ],
 )
 

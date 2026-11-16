@@ -1,0 +1,21 @@
+# Stage 7: the grid of XMEM size against bank fill time, one heatmap per
+# layer type. Banks stay 1024 rows; the size sets how many there are.
+name = "size_x_fill_time"
+
+[workload]
+kind = "network"
+network = "src/ipu-memsim/networks/mobilevit_s.toml"
+
+[model]
+kind = "cache_unit"
+
+[[sweep]]
+param = "fill_cycles_per_bank"
+values = [250, 500, 1000, 2111, 4000, 8000]
+
+[[sweep]]
+param = "xmem_mb"
+values = [0.5, 1, 2, 4, 8]
+
+[report]
+threshold_percent = 10

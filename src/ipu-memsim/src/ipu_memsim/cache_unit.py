@@ -28,9 +28,10 @@ setting; the questions are in ``docs/questions.md``):
   serving transfers first come first served (``dma_channels``, Q10);
 - how many banks each table gets (``bank_allocation``, Q4);
 - each table's ``jump_back`` (``jump_back``, Q8);
-- that the DMA prefetches the next page of an input table when its bank is
-  free (``prefetch``), and whether banks are already filled when the kernel
-  starts (``prefetch_before_start``, Q3);
+- that the DMA prefetches ahead of the IPU into free banks (``prefetch``; the
+  spec says so, section 8.1), how far ahead (``prefetch_distance``; the spec
+  sets no limit but the table's banks), and whether banks are already filled
+  when the kernel starts (``prefetch_before_start``, Q3);
 - that a kernel which needs a page whose bank holds another page of the same
   table evicts that page (drained first if dirty) and fetches the new one.
   The specification has no such eviction (CU-20): there the table must be set
@@ -57,7 +58,7 @@ from typing import Any
 
 import numpy as np
 
-from ipu_memsim.dram import DramBackend, FixedDram
+from ipu_memsim.dram import BankFillDram, DramBackend
 from ipu_memsim.models import MemoryModel
 from ipu_memsim.trace import OTHER, WRITE, Trace
 
@@ -131,12 +132,27 @@ class CacheUnit(MemoryModel):
         jump_back: ``"auto"`` (per table, the largest distance the kernel
             ever reads or writes behind its furthest row), an integer for
             every table, or ``"never"`` (no bank is given back early).
-        prefetch: The DMA fills the next page of an input table as soon as
-            its bank is free.
+        prefetch: The DMA fills pages of an input table ahead of the IPU, as
+            soon as their banks are free.
+        prefetch_distance: How many pages ahead of the page being accessed
+            the DMA may fill (the "overlap" of fetching and computing). 1 is
+            the cautious default. The specification's DMA (section 8.1) has
+            no such limit: it fills every free bank of the table, which is a
+            distance of ``num_banks`` or more here.
         prefetch_before_start: Input pages that fit their banks are already
             in XMEM at cycle 0.
         dma_channels: Transfers that can run at the same time.
         fill_whole_bank: A transfer always moves ``bank_rows`` rows.
+        residency: What happens to activations between two kernels (question
+            Q2). ``"dram_roundtrip"`` (the pessimistic default): every input
+            is fetched from DRAM and every output drained to it.
+            ``"stays_in_xmem"``: the previous kernel left this kernel's
+            activation inputs in XMEM (as many pages as the table has banks,
+            ready at cycle 0), and this kernel's outputs stay in XMEM for the
+            next one (not drained unless their bank is needed again). Weights
+            always come from DRAM.
+        weight_tables: Names of the input tables that are weights, comma
+            separated; every other input is an activation.
     """
 
     name = "cache_unit"
@@ -149,16 +165,26 @@ class CacheUnit(MemoryModel):
         bank_allocation: str | Mapping[str, int] = "proportional",
         jump_back: str | int = "auto",
         prefetch: bool = True,
+        prefetch_distance: int = 1,
         prefetch_before_start: bool = False,
         dma_channels: int = 1,
         fill_whole_bank: bool = False,
+        residency: str = "dram_roundtrip",
+        weight_tables: str = "w,filters,weights,gamma,beta,bias",
     ) -> None:
+        if residency not in ("dram_roundtrip", "stays_in_xmem"):
+            raise ValueError(
+                f"residency must be dram_roundtrip or stays_in_xmem, not {residency!r}"
+            )
+        self.residency = residency
+        self.weight_tables = {name.strip() for name in weight_tables.split(",") if name.strip()}
         self.num_banks = num_banks
         self.bank_rows = bank_rows
-        self.dram = dram or FixedDram()
+        self.dram = dram or BankFillDram()
         self.bank_allocation = bank_allocation
         self.jump_back = jump_back
         self.prefetch = prefetch
+        self.prefetch_distance = prefetch_distance
         self.prefetch_before_start = prefetch_before_start
         self.dma_channels = dma_channels
         self.fill_whole_bank = fill_whole_bank
@@ -194,14 +220,19 @@ class CacheUnit(MemoryModel):
                 ),
                 stats=dict.fromkeys(_STAT_NAMES, 0),
             )
+        stays = self.residency == "stays_in_xmem"
         for table, count in zip(self._tables.values(), self._allocate(), strict=True):
             table.banks = [_Bank() for _ in range(count)]
             if table.role == "input":
                 table.in_dram = set(range(table.pages))  # inputs start in DRAM
-                if self.prefetch_before_start:
+                activation = table.name not in self.weight_tables
+                if self.prefetch_before_start or (stays and activation):
                     for page in range(min(count, table.pages)):
                         table.banks[page].page = page  # ready at cycle 0
                         table.fetched.add(page)
+            elif table.role == "output" and stays:
+                # The next kernel reads the output from XMEM: no early flush.
+                table.jump_back = self.bank_rows
 
     def _jump_back_for(self, offsets: np.ndarray) -> int:
         """The table's ``jump_back`` in rows (``bank_rows`` or more: never)."""
@@ -259,7 +290,7 @@ class CacheUnit(MemoryModel):
 
     # -- one access ----------------------------------------------------------
 
-    def access(self, t: int, op: int, row: int, region: int) -> int:
+    def access(self, t: int, op: int, row: int, region: int) -> int:  # noqa: C901 (one access, start to end)
         if region == OTHER:
             self._other += 1  # outside every table: not modelled, never stalls
             return 0
@@ -297,13 +328,17 @@ class CacheUnit(MemoryModel):
 
         if page > 0 and row_in_page >= table.jump_back:
             self._release(table, page - 1, now)
-        if self.prefetch and page + 1 < table.pages and page + 1 in table.in_dram:
-            ahead = table.banks[(page + 1) % len(table.banks)]
-            if ahead.page is None:
-                ahead.ready = self._dma(max(now, ahead.free_at), table, page + 1, write=False)
-                ahead.page, ahead.dirty, ahead.free_at = page + 1, False, 0
-                table.fetched.add(page + 1)
-                stats["prefetches"] += 1
+        if self.prefetch:
+            # Fill pages ahead of the IPU, nearest first, into banks that are free.
+            for ahead_page in range(
+                page + 1, min(page + self.prefetch_distance, table.pages - 1) + 1
+            ):
+                ahead = table.banks[ahead_page % len(table.banks)]
+                if ahead.page is None and ahead_page in table.in_dram:
+                    ahead.ready = self._dma(max(now, ahead.free_at), table, ahead_page, write=False)
+                    ahead.page, ahead.dirty, ahead.free_at = ahead_page, False, 0
+                    table.fetched.add(ahead_page)
+                    stats["prefetches"] += 1
         return stall
 
     def _release(self, table: _Table, page: int, now: int) -> None:
@@ -324,8 +359,8 @@ class CacheUnit(MemoryModel):
         done at ``t`` and does not wait for this (IPU-EXEC-18); the time is
         reported as ``tail_drain_cycles``."""
         for table in self._tables.values():
-            if table.role == "scratch":
-                continue
+            if table.role == "scratch" or self.residency == "stays_in_xmem":
+                continue  # nothing to drain: scratch dies, outputs stay for the next kernel
             for bank in table.banks:
                 if bank.page is not None and bank.dirty:
                     self._dma(max(t, bank.ready), table, bank.page, write=True)

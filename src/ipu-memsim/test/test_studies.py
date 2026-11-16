@@ -82,7 +82,7 @@ def test_the_chart_names_every_series_and_marks_every_point():
     assert "a &amp; b" in svg  # names are escaped
     # 2 points + 1 legend marker per series; the two series use different shapes.
     assert len(root.findall(f"{ns}circle")) == 3 and len(root.findall(f"{ns}rect")) == 1 + 3
-    with pytest.raises(ValueError, match="1 to 4 series"):
+    with pytest.raises(ValueError, match="1 to 8 series"):
         line_chart([], title="t", subtitle="s", x_label="x", y_label="y")
 
 
@@ -113,7 +113,7 @@ type = "global_average_pool"
 note = "no kernel"
 """
 
-FAST = '[model]\nkind = "cache_unit"\nnum_banks = 16\n[dram]\nlatency_cycles = 10\nrows_per_cycle = 1.0\n'
+FAST = '[model]\nkind = "cache_unit"\nnum_banks = 16\n[dram]\nkind = "fixed"\nlatency_cycles = 10\nrows_per_cycle = 1.0\n'
 SMALL = '[model]\nkind = "cache_unit"\nnum_banks = 2\n'
 
 

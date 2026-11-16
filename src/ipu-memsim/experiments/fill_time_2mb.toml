@@ -1,0 +1,21 @@
+# Stage 7: stall against bank fill time, per MobileViT-S layer type, at
+# today's XMEM (2 MB = 16 banks of 1024 rows).
+# 2111 is the DRAMsim3 HBM2 anchor point; the other values bracket it.
+name = "fill_time_2mb"
+
+[workload]
+kind = "network"
+network = "src/ipu-memsim/networks/mobilevit_s.toml"
+
+[model]
+kind = "cache_unit"
+
+[fixed]
+xmem_mb = 2
+
+[[sweep]]
+param = "fill_cycles_per_bank"
+values = [0, 250, 500, 1000, 2111, 4000, 8000]
+
+[report]
+threshold_percent = 10
