@@ -1,0 +1,9 @@
+# Study point: a quarter of today's XMEM (4 banks = 0.5 MB), slow placeholder DRAM.
+[model]
+kind = "cache_unit"
+num_banks = 4
+bank_rows = 1024
+
+[dram]
+latency_cycles = 100
+rows_per_cycle = 0.1

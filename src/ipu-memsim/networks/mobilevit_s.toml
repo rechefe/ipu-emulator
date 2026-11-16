@@ -1,1 +1,282 @@
-# placeholder, filled in Stage 4
+# MobileViT-S, as the kernels in this repository cover it.
+#
+# Where the shapes come from:
+# - Transformer layers (attention, MLP, normalization, elementwise, reshape):
+#   docs/content/kernels/mobilevit.md, which names one kernel per step for
+#   Layer 3 (d=144, 256 tokens, 2 blocks), Layer 4 (d=192, 64 tokens, 4
+#   blocks) and Layer 5 (d=240, 16 tokens, 3 blocks). `count` is the number of
+#   transformer blocks times the uses per block. The projections are counted
+#   through the single-stream matmul kernels, 4 streams each (the *_p4
+#   kernels do the 4 streams in one run and are an alternative, not an addition).
+# - Convolutions: ASSUMED from the public MobileViT-S architecture (256x256
+#   input; channels 16, 32, 64, 96, 128, 160; MV2 expansion 4). The channel
+#   counts agree with this repository's concat kernels (96, 128, 160). Check
+#   them against the team's model export before quoting totals (Q13, Q19).
+#   Only a representative subset is listed, not every convolution.
+name = "MobileViT-S (kernels on master)"
+
+# ---- standard 3x3 convolution -------------------------------------------------
+[[layer]]
+type = "standard_conv"
+name = "MViT-L3 local 3x3, 96->96 @32x32"
+kernel = "conv_universal"
+values = { height = 32, width = 32, in_channels = 96, out_channels = 96 }
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "MViT-L4 local 3x3, 128->128 @16x16"
+kernel = "conv_universal"
+values = { height = 16, width = 16, in_channels = 128, out_channels = 128 }
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "MViT-L5 local 3x3, 160->160 @8x8"
+kernel = "conv_universal"
+values = { height = 8, width = 8, in_channels = 160, out_channels = 160 }
+count = 1
+
+[[layer]]
+type = "standard_conv"
+name = "book reference: 3x3, 32->32 @64x64"
+kernel = "conv_universal"
+values = { height = 64, width = 64, in_channels = 32, out_channels = 32 }
+count = 0        # not a MobileViT-S layer: kept to compare with the project book (318,564 cycles)
+
+# ---- depthwise 3x3 convolution ------------------------------------------------
+[[layer]]
+type = "depthwise_conv"
+name = "MV2 depthwise 3x3, 64 ch @64x64 (book reference shape)"
+kernel = "depthwise_conv_universal"
+values = { height = 64, width = 64, in_channels = 64, out_channels = 64, groups = 64 }
+count = 1
+
+[[layer]]
+type = "depthwise_conv"
+name = "MV2 depthwise 3x3, 256 ch @64x64"
+kernel = "depthwise_conv_universal"
+values = { height = 64, width = 64, in_channels = 256, out_channels = 256, groups = 256 }
+count = 2
+
+# ---- pointwise 1x1 convolution ------------------------------------------------
+[[layer]]
+type = "pointwise_conv"
+name = "MV2 project 1x1, 64->32 @128x128"
+kernel = "pointwise_conv_unified"
+values = { height = 128, width = 128, in_channels = 64, out_channels = 32 }
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "MViT-L3 1x1, 96->144 @32x32"
+kernel = "pointwise_conv_unified"
+values = { height = 32, width = 32, in_channels = 96, out_channels = 144 }
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "MViT-L4 1x1, 128->192 @16x16"
+kernel = "pointwise_conv_unified"
+values = { height = 16, width = 16, in_channels = 128, out_channels = 192 }
+count = 1
+
+[[layer]]
+type = "pointwise_conv"
+name = "MViT-L5 1x1, 160->240 @8x8"
+kernel = "pointwise_conv_unified"
+values = { height = 8, width = 8, in_channels = 160, out_channels = 240 }
+count = 1
+
+# ---- attention (scores, softmax, attn@V; query-major chain) -------------------
+[[layer]]
+type = "attention"
+name = "L3 QK^T scores 256x36"
+kernel = "qk_scores_256x36"
+count = 2
+
+[[layer]]
+type = "attention"
+name = "L3 attn@V 256x36"
+kernel = "attn_v_256x36"
+count = 2
+
+[[layer]]
+type = "attention"
+name = "L4 QK^T scores 64x48"
+kernel = "qk_scores_64x48"
+count = 4
+
+[[layer]]
+type = "attention"
+name = "L4 attn@V 64x48"
+kernel = "attn_v_64x48"
+count = 4
+
+[[layer]]
+type = "attention"
+name = "L5 QK^T scores 16x60"
+kernel = "qk_scores_16x60"
+count = 3
+
+[[layer]]
+type = "attention"
+name = "L5 attn@V 16x60"
+kernel = "attn_v_16x60"
+count = 3
+
+[[layer]]
+type = "attention"
+name = "softmax over score rows (default case)"
+kernel = "softmax_rows"
+count = 1        # the default case's shape, not a layer's: shapes per layer still to be set
+
+# ---- MLP / projections (single-stream matmuls, 4 streams per block) -----------
+[[layer]]
+type = "mlp"
+name = "L3 QKV 144->432"
+kernel = "matmul_432x144_x128"
+count = 8
+
+[[layer]]
+type = "mlp"
+name = "L3 OutProj 144->144"
+kernel = "matmul_144x144_x128"
+count = 8
+
+[[layer]]
+type = "mlp"
+name = "L3 FFN1 144->288 (SiLU)"
+kernel = "matmul_288x144_x128"
+count = 8
+
+[[layer]]
+type = "mlp"
+name = "L3 FFN2 288->144"
+kernel = "matmul_144x288_x128"
+count = 8
+
+[[layer]]
+type = "mlp"
+name = "L4 QKV 192->576"
+kernel = "matmul_576x192_x128"
+count = 16
+
+[[layer]]
+type = "mlp"
+name = "L4 OutProj 192->192"
+kernel = "matmul_192x192_x128"
+count = 16
+
+[[layer]]
+type = "mlp"
+name = "L4 FFN1 192->384 (SiLU)"
+kernel = "matmul_384x192_x128"
+count = 16
+
+[[layer]]
+type = "mlp"
+name = "L4 FFN2 384->192"
+kernel = "matmul_192x384_x128"
+count = 16
+
+[[layer]]
+type = "mlp"
+name = "L5 QKV 240->720"
+kernel = "matmul_720x240_x128"
+count = 12
+
+[[layer]]
+type = "mlp"
+name = "L5 OutProj 240->240"
+kernel = "matmul_240x240_x128"
+count = 12
+
+[[layer]]
+type = "mlp"
+name = "L5 FFN1 240->480 (SiLU)"
+kernel = "matmul_480x240_x128"
+count = 12
+
+[[layer]]
+type = "mlp"
+name = "L5 FFN2 480->240"
+kernel = "matmul_240x480_x128"
+count = 12
+
+# ---- normalization ------------------------------------------------------------
+[[layer]]
+type = "normalization"
+name = "L3 LayerNorm 256x144"
+kernel = "layernorm_256x144"
+count = 4
+
+[[layer]]
+type = "normalization"
+name = "L4 LayerNorm 64x192"
+kernel = "layernorm_64x192"
+count = 8
+
+[[layer]]
+type = "normalization"
+name = "L5 LayerNorm 16x240"
+kernel = "layernorm_16x240"
+count = 6
+
+# ---- elementwise and reshape (not in the brief's six types; listed for completeness)
+[[layer]]
+type = "elementwise"
+name = "L3 residual add 256x144"
+kernel = "residual_add_256x144"
+count = 4
+
+[[layer]]
+type = "elementwise"
+name = "L4 residual add 64x192"
+kernel = "residual_add_64x192"
+count = 8
+
+[[layer]]
+type = "elementwise"
+name = "L5 residual add 16x240"
+kernel = "residual_add_16x240"
+count = 6
+
+[[layer]]
+type = "reshape"
+name = "L3 unfold 32x32x144"
+kernel = "unfold_32x32x144"
+count = 1
+
+[[layer]]
+type = "reshape"
+name = "L3 fold 32x32x144"
+kernel = "fold_32x32x144"
+count = 1
+
+[[layer]]
+type = "reshape"
+name = "L3 concat 32x32x96x96"
+kernel = "concat_32x32x96x96"
+count = 1
+
+# ---- layer types MobileViT-S has and no kernel on master computes --------------
+[[missing]]
+type = "global_average_pool"
+note = "no pooling kernel reduces a whole feature map to one vector (only maxpool2d kernels exist)"
+
+[[missing]]
+type = "classifier (fully connected 640->1000)"
+note = "linear/fully_connected is fixed at 10 samples x 128 -> 64"
+
+[[missing]]
+type = "standard_conv stride 2, general"
+note = "conv_first_layer covers only the 3->16 stem; conv_universal is stride 1"
+
+[[missing]]
+type = "SiLU after a convolution"
+note = "the convolution kernels offer ReLU only (apply_relu); SiLU exists in the projection kernels"
+
+[[missing]]
+type = "batch normalization as its own layer"
+note = "folded into the convolution's bias (the *_bn_activation kernels); nothing to measure separately"
