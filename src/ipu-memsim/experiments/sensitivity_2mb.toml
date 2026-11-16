@@ -1,0 +1,73 @@
+# Stage 10: which ASSUMED parameters move the results? One at a time, at
+# 2 MB / 16 banks, for every MobileViT-S layer type.
+#
+# Baseline: the registry defaults, with the bank fill time at the DRAMsim3
+# HBM2 anchor (2111 ns on the assumed 1 ns clock = 2111 cycles). Its "default"
+# column is therefore the 2,111 column of experiments/fill_time_2mb.toml.
+# The fill time is given in ns here so that the clock period has an effect.
+name = "sensitivity_2mb"
+
+[workload]
+kind = "network"
+network = "src/ipu-memsim/networks/mobilevit_s.toml"
+
+[model]
+kind = "cache_unit"
+
+[fixed]
+xmem_mb = 2
+fill_ns_per_bank = 2111
+
+[[vary]]
+param = "residency"
+low = "stays_in_xmem"
+high = "dram_roundtrip"
+reason = "Q2 / OQ-11 (unassigned): the two possible answers. The baseline is the pessimistic one."
+
+[[vary]]
+param = "fill_ns_per_bank"
+low = 250
+high = 8000
+reason = "Q1: the range of the Stage 7 sweep; 2111 ns is the DRAMsim3 HBM2 anchor."
+
+[[vary]]
+param = "clock_ns"
+low = 0.5
+high = 2.0
+reason = "The emulator defines no clock; OQ-16 speaks of meeting 1 GHz (1 ns). Half and double that."
+
+[[vary]]
+param = "bank_allocation"
+low = "one_each"
+high = "equal"
+reason = "Q4: nothing says who assigns banks. One bank per table is the least possible; equal shares is the other simple rule."
+
+[[vary]]
+param = "jump_back"
+low = 0
+high = "never"
+reason = "Q8: 0 releases the previous bank as soon as the next page is entered; never keeps every bank until its slot is needed. The baseline derives it from the trace."
+
+[[vary]]
+param = "prefetch_distance"
+low = 0
+high = 16
+reason = "0: no background prefetch. 16: the spec's DMA (cache-unit.md section 8.1) fills every free bank of the table."
+
+[[vary]]
+param = "dma_channels"
+low = 1
+high = 4
+reason = "Q10: the spec describes one DMA; 4 is an optimistic upper setting. Low equals the baseline."
+
+[[vary]]
+param = "prefetch_before_start"
+low = false
+high = true
+reason = "Q3: CU-16 allows the DMA to fill banks before the kernel starts. Low equals the baseline."
+
+[[vary]]
+param = "fill_whole_bank"
+low = false
+high = true
+reason = "Q9: whether a 64-row table costs a 64-row or a 1024-row transfer. Low equals the baseline."

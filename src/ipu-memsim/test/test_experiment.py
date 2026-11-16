@@ -303,7 +303,7 @@ def test_sweep_values_from_a_range():
         False,
     ]
     for bad, message in [
-        ({"param": "bank_allocation", "values": ["proportional"]}, "cannot be swept"),
+        ({"param": "weight_tables", "values": ["w"]}, "cannot be swept"),
         ({"param": "num_banks", "min": 4, "max": 2}, "max > min"),
         ({"param": "num_banks", "min": 0, "max": 2, "scale": "log"}, "min > 0"),
         ({"param": "num_banks", "values": [0]}, "outside"),
@@ -364,3 +364,99 @@ def test_toml_round_trip():
     data = {"name": "x y", "n": 3, "f": 0.5, "flag": True, "list": [1, 2.5, "a"],
             "table": {"k": "v", "inner": {"a": 1}}, "sweep": [{"param": "p", "values": [1, 2]}]}  # fmt: skip
     assert tomllib.loads(to_toml(data)) == data
+
+
+# -- sensitivity -------------------------------------------------------------------
+
+
+def sensitivity_spec():
+    return {
+        "name": "s",
+        "workload": {"kind": "trace", "trace": "unused"},
+        "model": {"kind": "cache_unit"},
+        "fixed": {"xmem_mb": 2, "fill_ns_per_bank": 2111},
+        "vary": [
+            {"param": "fill_ns_per_bank", "low": 250, "high": 8000, "reason": "range"},
+            {"param": "clock_ns", "low": 0.5, "high": 2.0},
+            {"param": "dma_channels", "low": 1, "high": 4},
+            {"param": "residency", "low": "stays_in_xmem", "high": "dram_roundtrip"},
+        ],
+    }
+
+
+def test_sensitivity_varies_one_parameter_at_a_time():
+    from ipu_memsim import sensitivity
+
+    rows = sensitivity.run_sensitivity(sensitivity_spec(), workload=WORKLOAD)
+    assert len(rows) == 4 * 2  # parameters x groups
+    by = {(row.param, row.group): row for row in rows}
+    # The baseline column is the plain run at the fixed values, for every parameter.
+    baseline = run_sweep(
+        spec(fixed={"xmem_mb": 2}, sweep=[{"param": "fill_ns_per_bank", "values": [2111]}]),
+        workload=WORKLOAD,
+    )
+    for row in rows:
+        expected = next(r["stall_percent"] for r in baseline.rows if r["group"] == row.group)
+        assert row.stall_percent[1] == pytest.approx(expected), row.param
+        known = [s for s in row.stall_percent if s is not None]
+        assert row.spread == pytest.approx(max(known) - min(known))
+    fill = by[("fill_ns_per_bank", "stream")]
+    assert fill.settings == (250, 2111, 8000) and fill.reason == "range"
+    assert fill.stall_percent[0] < fill.stall_percent[1] < fill.stall_percent[2]
+    # Halving the clock period doubles the fill time in cycles: the same as 4222 ns at 1 ns.
+    clock = by[("clock_ns", "stream")]
+    doubled = run_sweep(
+        spec(fixed={"xmem_mb": 2}, sweep=[{"param": "fill_ns_per_bank", "values": [4222]}]),
+        workload=WORKLOAD,
+    )
+    assert clock.stall_percent[0] == pytest.approx(doubled.rows[0]["stall_percent"])
+    # The ranking is by the largest spread, and deterministic.
+    ranking = sensitivity.rank(rows)
+    spreads = [entry["max_spread"] for entry in ranking]
+    assert spreads == sorted(spreads, reverse=True) and ranking[0]["param"] == "fill_ns_per_bank"
+    assert (
+        sensitivity.rank(sensitivity.run_sensitivity(sensitivity_spec(), workload=WORKLOAD))
+        == ranking
+    )
+
+
+def test_sensitivity_results_are_saved_with_their_spec_and_a_pair_heatmap(tmp_path):
+    from ipu_memsim import sensitivity
+
+    one = sensitivity_spec()
+    rows = sensitivity.run_sensitivity(one, workload=WORKLOAD)
+    pair = sensitivity.run_pair(one, "fill_ns_per_bank", "residency", workload=WORKLOAD)
+    assert len(pair.rows) == 2 * 3 * 2  # groups x fill settings x residency settings
+    written = sensitivity.write_sensitivity(one, rows, tmp_path, pair)
+    names = {p.name for p in written}
+    assert {
+        "sensitivity.csv",
+        "ranking.csv",
+        "ranking.md",
+        "spec.toml",
+        "s_pair_stream.svg",
+    } <= names
+    saved = tomllib.loads((tmp_path / "spec.toml").read_text())
+    assert (
+        sensitivity.run_sensitivity(saved, workload=WORKLOAD) == rows
+    )  # reproducible from the saved spec
+    assert "| 1 | `fill_ns_per_bank` |" in (tmp_path / "ranking.md").read_text()
+
+
+def test_bank_allocation_rules():
+    regions = [
+        ("big", "input", 0, 6 * 1024),
+        ("small", "input", 10000, 10),
+        ("y", "output", 20000, 4096),
+    ]
+    trace = make_trace([(0, READ, 0), (1, READ, 10000), (2, WRITE, 20000)], regions)
+
+    def banks(rule, total=9):
+        tables = replay(trace, CacheUnit(total, bank_allocation=rule)).counters["tables"]
+        return [t["banks"] for t in tables.values()]
+
+    assert banks("proportional") == [5, 1, 3]  # by size: 6 and 4 pages share the 8 spare banks
+    assert banks("equal") == [4, 1, 4]  # evenly, but nobody gets more than it has pages
+    assert banks("one_each") == [1, 1, 1]
+    with pytest.raises(ValueError, match="unknown bank_allocation"):
+        replay(trace, CacheUnit(9, bank_allocation="random"))

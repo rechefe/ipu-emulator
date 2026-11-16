@@ -10,6 +10,43 @@ continue. "OQ-n" refers to `docs/content/requirements/open-questions.md`.
 Every parameter named here is in the parameter registry
 (`ipu_memsim/params.py`; `memsim params` prints it).
 
+## Ask about these first (Stage 10 sensitivity ranking)
+
+From `memsim sensitivity --spec src/ipu-memsim/experiments/sensitivity_2mb.toml`
+(MobileViT-S, 2 MB / 16 banks, bank fill 2,111 ns; one parameter varied at a
+time). "Spread" is the largest change in stall, in percentage points of ideal
+cycles, over the parameter's low / default / high settings, for the layer
+type it moves most. TOY MODEL numbers: they rank the questions.
+
+| Rank | Parameter (question) | Settings tried | Largest spread | Layer types moved by more than 1 point |
+|---|---|---|---|---|
+| 1 | `bank_allocation` (Q4) | one bank each / by size / equal | 20,102 (depthwise conv) | 6 of 8 |
+| 2 | `jump_back` (Q8, Q5) | 0 / from the trace / never | 10,605 (depthwise conv) | 5 of 8 |
+| 3 | `fill_ns_per_bank` (Q1) | 250 / 2,111 / 8,000 ns | 374 (elementwise) | 8 of 8 |
+| 4 | `fill_whole_bank` (Q9) | rows the table has / always a full bank | 353 (elementwise) | 7 of 8 |
+| 5 | `clock_ns` (Q1b) | 0.5 / 1 / 2 ns | 153 (elementwise) | 8 of 8 |
+| 6 | `residency` (Q2) | stays in XMEM / DRAM round trip | 102 (elementwise) | 6 of 8 |
+| 7 | `prefetch_before_start` (Q3) | no / yes | 102 (elementwise) | 7 of 8 |
+| 8 | `prefetch_distance` (Q20) | 0 / 1 / 16 pages | 19 (depthwise conv) | 2 of 8 |
+| 9 | `dma_channels` (Q10) | 1 / 4 | 0.4 (pointwise conv) | 0 of 8 |
+
+How to read it:
+
+- **Ranks 1 and 2 are cliffs, not slopes.** With one bank per table, or with
+  a bank released too early, a kernel reloads a bank on almost every access.
+  By-size and equal sharing give identical results, and `jump_back = never`
+  differs from the trace-derived value only for depthwise (3.7% against
+  9.1%). So the question for the architects is not a number but a rule: who
+  guarantees that each table has enough banks and a safe `jump_back`, and
+  what happens when it has not (Q4, Q5, Q8)?
+- **Ranks 3 to 7 scale the cost of moving data.** They matter for every
+  layer type and most for the light ones (residual add, LayerNorm). Fill
+  time and clock are one question (time per bank in cycles). `fill_whole_bank`
+  ranks high because most MobileViT-S tables are much smaller than a bank.
+- **Ranks 8 and 9 can wait.** How far the DMA prefetches and whether there
+  are several DMA channels barely change the results at this operating
+  point.
+
 ## A. Structural: ask these first
 
 | # | Question | Who | Tool default today (ASSUMED) |

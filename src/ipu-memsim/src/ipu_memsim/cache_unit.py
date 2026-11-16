@@ -128,7 +128,8 @@ class CacheUnit(MemoryModel):
         bank_rows: Rows per bank = page size (hardware: 1024).
         dram: The off-chip timing model.
         bank_allocation: ``"proportional"`` (banks shared by table size, at
-            least one each) or ``{table name: banks}``.
+            least one each), ``"equal"`` (shared evenly), ``"one_each"`` (one
+            bank per table, the rest unused) or ``{table name: banks}``.
         jump_back: ``"auto"`` (per table, the largest distance the kernel
             ever reads or writes behind its furthest row), an integer for
             every table, or ``"never"`` (no bank is given back early).
@@ -258,12 +259,24 @@ class CacheUnit(MemoryModel):
                     f"XMEM has {self.num_banks}"
                 )
             counts = [1] * len(tables)
-            # Hand out the remaining banks one at a time to the table that is
-            # furthest from holding all its pages.
-            for _ in range(self.num_banks - len(tables)):
-                short = [
-                    t.pages / c if t.pages > c else 0.0 for t, c in zip(tables, counts, strict=True)
-                ]
+            spare = self.num_banks - len(tables)
+            if self.bank_allocation == "one_each":
+                spare = 0  # the least a table can have; the other banks stay unused
+            elif self.bank_allocation not in ("proportional", "equal"):
+                raise ValueError(f"unknown bank_allocation {self.bank_allocation!r}")
+            # Hand out the spare banks one at a time. "proportional": to the
+            # table furthest from holding all its pages. "equal": to the table
+            # with the fewest banks that can still use one more.
+            for _ in range(spare):
+                if self.bank_allocation == "equal":
+                    short = [
+                        1.0 / c if t.pages > c else 0.0 for t, c in zip(tables, counts, strict=True)
+                    ]
+                else:
+                    short = [
+                        t.pages / c if t.pages > c else 0.0
+                        for t, c in zip(tables, counts, strict=True)
+                    ]
                 if max(short) == 0.0:
                     break  # every table is fully resident
                 counts[short.index(max(short))] += 1

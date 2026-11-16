@@ -69,6 +69,7 @@ else:
 
 __all__ = [
     "SweepTable",
+    "coerce",
     "WorkItem",
     "break_even",
     "grid_size",
@@ -338,6 +339,8 @@ def break_even(table: SweepTable, threshold_percent: float | None = None) -> lis
     """
     if threshold_percent is None:
         threshold_percent = float(table.spec["report"]["threshold_percent"])
+    if table.params[0].type not in (int, float):
+        return []  # a switch or a choice has no "smallest value above"
     first = table.params[0].name
     second = table.params[1].name if len(table.params) > 1 else None
     result = []
@@ -347,8 +350,9 @@ def break_even(table: SweepTable, threshold_percent: float | None = None) -> lis
             (row for row in table.rows
              if row["group"] == group and (second is None or row[second] == other)
              and row["stall_percent"] is not None),
-            key=lambda row: row[first],
+            key=lambda row: (isinstance(row[first], str), row[first]),  # numbers first, then "auto"
         )  # fmt: skip
+        line = [row for row in line if not isinstance(row[first], str)]
         entry: dict[str, Any] = {"group": group}
         if second:
             entry[second] = other

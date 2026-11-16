@@ -4,6 +4,7 @@
     memsim replay  TRACE --config FILE.toml [--json]
     memsim sweep   --spec EXPERIMENT.toml [--out DIR]
     memsim sweep   TRACE --out DIR
+    memsim sensitivity --spec SENSITIVITY.toml [--out DIR]
     memsim params  [MODEL]
     memsim network NETWORK.toml --out DIR [--configs FILE.toml ...]
     memsim dram-measure --dramsim3 PROGRAM --ini CONFIG.ini [--out FILE.toml]
@@ -192,6 +193,32 @@ def _experiment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sensitivity(args: argparse.Namespace) -> int:
+    """``memsim sensitivity --spec``: vary each ASSUMED parameter alone and rank them."""
+    from ipu_memsim import experiment, sensitivity
+
+    spec = experiment.load_spec(_user_path(args.spec))
+    workload = experiment.load_workload(spec, _workspace(), _commit())
+    rows = sensitivity.run_sensitivity(
+        spec, _workspace(), workload=workload,
+        progress=lambda name: print(f"varying {name}", file=sys.stderr),
+    )  # fmt: skip
+    ranking = sensitivity.rank(rows)
+    # The two most sensitive parameters together, unless the spec names a pair.
+    first, second = spec.get("pair", [entry["param"] for entry in ranking[:2]])
+    pair = sensitivity.run_pair(spec, first, second, _workspace(), workload=workload)
+    out = (
+        _user_path(args.out)
+        if args.out
+        else _workspace() / "memsim-out" / spec.get("name", "sensitivity")
+    )
+    written = sensitivity.write_sensitivity(spec, rows, out, pair)
+    print((out / "ranking.md").read_text())
+    for path in written:
+        print(path)
+    return 0
+
+
 def _network(args: argparse.Namespace) -> int:
     from ipu_memsim.network import run_network
 
@@ -268,6 +295,13 @@ def build_parser() -> argparse.ArgumentParser:
     swp.add_argument("--out", help="folder for the results (default: memsim-out/<experiment name>)")
     swp.add_argument("--yes", action="store_true", help="run a grid larger than the limit")
     swp.set_defaults(run=_sweep)
+
+    sen = commands.add_parser("sensitivity", help="vary each assumed parameter alone and rank them")
+    sen.add_argument(
+        "--spec", required=True, help="a sensitivity file (TOML) with [[vary]] entries"
+    )
+    sen.add_argument("--out", help="folder for the results (default: memsim-out/<name>)")
+    sen.set_defaults(run=_sensitivity)
 
     par = commands.add_parser("params", help="list every tunable parameter (the registry)")
     par.add_argument("model", nargs="?", help="only this model's parameters")

@@ -119,9 +119,9 @@ REGISTRY: tuple[Param, ...] = (
           CONFIRMED, f"{_SPEC}:47-48 (16 x 128 KB = 2 MB); set a value to override", low=0.001, high=4096),
     # ---- cache_unit behaviour -----------------------------------------------
     Param("bank_allocation", _CU, "model", str, "", "proportional",
-          "How banks are shared between a kernel's tables: by table size, or a list per table in the TOML file.",
-          ASSUMED, "Q4: who assigns banks to tables is not specified", choices=("proportional",),
-          sweepable=False),
+          "How banks are shared between a kernel's tables: by table size, evenly, one each, or a list per table in the TOML file.",
+          ASSUMED, "Q4: who assigns banks to tables is not specified",
+          choices=("proportional", "equal", "one_each")),
     Param("jump_back", _CU, "model", int, "rows", "auto",
           "Row inside a page at which the previous page's bank is given back; 'auto' derives it from the trace.",
           ASSUMED, "Q8: who sets jump_back per kernel", low=0, high=1 << 20, specials=("auto", "never")),
