@@ -54,8 +54,11 @@ def _nice_ticks(low: float, high: float, count: int = 5) -> list[float]:
     return [t for t in ticks if t <= high + step]
 
 
-def _number(value: float) -> str:
-    """A tick or tooltip number, short: 316553 -> 317k, 1.25 -> 1.25."""
+def _number(value: object) -> str:
+    """A tick or tooltip number, short: 316553 -> 317k, 1.25 -> 1.25. A value
+    that is not a number (a switch's setting) is shown as it is."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return str(value)
     if abs(value) >= 1_000_000:
         return f"{value / 1_000_000:.3g}M"
     if abs(value) >= 10_000:

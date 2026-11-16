@@ -19,10 +19,20 @@ dependencies = [
 ipu-emu = { path = "../ipu-emu", editable = true }
 ipu-harness = { path = "../ipu-harness", editable = true }
 ipu-isa = { path = "../ipu-isa", editable = true }
+ipu-kernels = { path = "../ipu-kernels", editable = true }
+ipu-as = { path = "../ipu-as", editable = true }
+ipu-debug = { path = "../ipu-debug", editable = true }
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.1",
+]
+# The browser front end (ipu_memsim.ui). Optional: the core, the command line
+# and the tests need none of it. ipu-kernels is here because recording a
+# missing trace from the menu loads the kernels' generators.
+ui = [
+    "ipu-kernels",
+    "streamlit>=1.50",
 ]
 
 [tool.setuptools]

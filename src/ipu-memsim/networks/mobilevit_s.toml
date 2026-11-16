@@ -132,76 +132,91 @@ kernel = "softmax_rows"
 count = 1        # the default case's shape, not a layer's: shapes per layer still to be set
 
 # ---- MLP / projections (single-stream matmuls, 4 streams per block) -----------
+# `weights = ["a"]`: in these kernels input `a` is the weight matrix W and `b`
+# the data (kernels/matmul/matmul_x128_c2/kernel.toml:32-38). It matters only
+# for residency = "stays_in_xmem": weights always come from DRAM.
 [[layer]]
 type = "mlp"
 name = "L3 QKV 144->432"
 kernel = "matmul_432x144_x128"
+weights = ["a"]
 count = 8
 
 [[layer]]
 type = "mlp"
 name = "L3 OutProj 144->144"
 kernel = "matmul_144x144_x128"
+weights = ["a"]
 count = 8
 
 [[layer]]
 type = "mlp"
 name = "L3 FFN1 144->288 (SiLU)"
 kernel = "matmul_288x144_x128"
+weights = ["a"]
 count = 8
 
 [[layer]]
 type = "mlp"
 name = "L3 FFN2 288->144"
 kernel = "matmul_144x288_x128"
+weights = ["a"]
 count = 8
 
 [[layer]]
 type = "mlp"
 name = "L4 QKV 192->576"
 kernel = "matmul_576x192_x128"
+weights = ["a"]
 count = 16
 
 [[layer]]
 type = "mlp"
 name = "L4 OutProj 192->192"
 kernel = "matmul_192x192_x128"
+weights = ["a"]
 count = 16
 
 [[layer]]
 type = "mlp"
 name = "L4 FFN1 192->384 (SiLU)"
 kernel = "matmul_384x192_x128"
+weights = ["a"]
 count = 16
 
 [[layer]]
 type = "mlp"
 name = "L4 FFN2 384->192"
 kernel = "matmul_192x384_x128"
+weights = ["a"]
 count = 16
 
 [[layer]]
 type = "mlp"
 name = "L5 QKV 240->720"
 kernel = "matmul_720x240_x128"
+weights = ["a"]
 count = 12
 
 [[layer]]
 type = "mlp"
 name = "L5 OutProj 240->240"
 kernel = "matmul_240x240_x128"
+weights = ["a"]
 count = 12
 
 [[layer]]
 type = "mlp"
 name = "L5 FFN1 240->480 (SiLU)"
 kernel = "matmul_480x240_x128"
+weights = ["a"]
 count = 12
 
 [[layer]]
 type = "mlp"
 name = "L5 FFN2 480->240"
 kernel = "matmul_240x480_x128"
+weights = ["a"]
 count = 12
 
 # ---- normalization ------------------------------------------------------------

@@ -28,3 +28,6 @@ bench-results/
 
 # Memory what-if tool outputs: traces, sweep tables, plots (src/ipu-memsim).
 /memsim-out/
+
+# uv lock files written when running the optional browser front end.
+/src/ipu-memsim/uv.lock

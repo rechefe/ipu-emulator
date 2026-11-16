@@ -163,7 +163,11 @@ py_pytest_test(
 )
 
 # Ruff lint and format over this package's Python files (tools/lint.bzl).
+# .venv is what `uv run --extra ui` creates for the optional browser front end.
 ruff_test(
     name = "ruff",
-    srcs = glob(["**/*.py"]),
+    srcs = glob(
+        ["**/*.py"],
+        exclude = [".venv/**"],
+    ),
 )

@@ -1,0 +1,22 @@
+# Stage 9: the two answers to "does a layer's output go to DRAM and back, or
+# stay in XMEM for the next kernel?" (question Q2), side by side, over the
+# bank fill time, at 2 MB.
+name = "residency_x_fill_time"
+
+[workload]
+kind = "network"
+network = "src/ipu-memsim/networks/mobilevit_s.toml"
+
+[model]
+kind = "cache_unit"
+
+[fixed]
+xmem_mb = 2
+
+[[sweep]]
+param = "fill_cycles_per_bank"
+values = [250, 500, 1000, 2111, 4000, 8000]
+
+[[sweep]]
+param = "residency"
+values = ["dram_roundtrip", "stays_in_xmem"]
