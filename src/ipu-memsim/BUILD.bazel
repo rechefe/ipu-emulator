@@ -1,0 +1,137 @@
+load("@ipu_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["pyproject.toml"])
+
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
+# Example model configs and network descriptions.
+filegroup(
+    name = "configs",
+    srcs = glob(["configs/*.toml", "networks/*.toml"]),
+)
+
+# The memory what-if tool: trace recorder, replay engine, memory models.
+# One way onto the harness (to stage a kernel), the emulator's reference-model
+# API (to step it) and the ISA (row sizes); tools/import_graph.toml.
+py_library(
+    name = "ipu_memsim_lib",
+    srcs = glob(["src/ipu_memsim/**/*.py"]),
+    imports = ["src"],
+    deps = [
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-harness:ipu_harness_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+# bazel run //src/ipu-memsim:memsim -- record residual_add
+# With ipu_kernels for the kernels' generators and pack transforms, and
+# //kernels:tree for every kernel's files. No torch: the recorder stages and
+# steps a kernel, it does not evaluate its golden.
+py_binary(
+    name = "memsim",
+    srcs = ["src/ipu_memsim/cli.py"],
+    data = [
+        ":configs",
+        "//kernels:tree",
+    ],
+    main = "src/ipu_memsim/cli.py",
+    deps = [
+        ":ipu_memsim_lib",
+        "//src/ipu-kernels:ipu_kernels_all",
+    ],
+)
+
+# Hand-made traces for the tests.
+py_library(
+    name = "test_support",
+    testonly = True,
+    srcs = ["test/support.py"],
+    imports = ["test"],
+    deps = [
+        ":ipu_memsim_lib",
+        requirement("numpy"),
+    ],
+)
+
+# The trace file format: round trip and determinism.
+py_pytest_test(
+    name = "test_trace",
+    srcs = ["test/test_trace.py"],
+    deps = [
+        ":ipu_memsim_lib",
+        ":test_support",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# The replay engine and the toy models, on hand-made traces: the mandatory
+# sanity tests (infinite cache = ideal, never-hit cache = accesses x penalty,
+# determinism).
+py_pytest_test(
+    name = "test_models",
+    srcs = ["test/test_models.py"],
+    deps = [
+        ":ipu_memsim_lib",
+        ":test_support",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# The cache_unit model against hand-computed schedules.
+py_pytest_test(
+    name = "test_cache_unit",
+    srcs = ["test/test_cache_unit.py"],
+    deps = [
+        ":ipu_memsim_lib",
+        ":test_support",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# The recorder on real kernels: entries match the emulator's statistics, the
+# trace is deterministic, and replaying it with Ideal gives the cycle count.
+py_pytest_test(
+    name = "test_record",
+    size = "medium",
+    srcs = ["test/test_record.py"],
+    data = ["//kernels:tree"],
+    deps = [
+        ":ipu_memsim_lib",
+        "//src/ipu-kernels:ipu_kernels_all",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)

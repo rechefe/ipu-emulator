@@ -37,6 +37,7 @@ known-first-party = [
     "ipu_harness",
     "ipu_isa",
     "ipu_kernels",
+    "ipu_memsim",
 ]
 
 [lint.mccabe]

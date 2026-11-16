@@ -1,0 +1,7 @@
+# TOY MODEL. 16 banks; a bank is busy `busy_cycles` after each access.
+[model]
+kind = "banked"
+num_banks = 16
+busy_cycles = 2
+mapping = "interleave"   # or "blocked" (bank = (row // bank_rows) % num_banks)
+bank_rows = 1024

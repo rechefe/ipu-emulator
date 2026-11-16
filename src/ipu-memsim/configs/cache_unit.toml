@@ -1,0 +1,18 @@
+# XMEM as docs/content/specs/cache-unit.md describes it: 16 banks of 1024 rows
+# (2 MB), per-table bank lists, jump_back, a background DMA.
+# The [dram] numbers are PLACEHOLDERS (docs/questions.md, Q1).
+[model]
+kind = "cache_unit"
+num_banks = 16
+bank_rows = 1024
+bank_allocation = "proportional"   # or a table: { a = 2, b = 2, y = 4 }
+jump_back = "auto"                 # or rows (0..1023), or "never"
+prefetch = true
+prefetch_before_start = false
+dma_channels = 1
+fill_whole_bank = false
+
+[dram]
+kind = "fixed"
+latency_cycles = 100
+rows_per_cycle = 1.0               # 128 bytes per IPU cycle

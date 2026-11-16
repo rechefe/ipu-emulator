@@ -69,6 +69,12 @@ ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
 # lanes, E06-05) come from ipu_isa, never a local constant.
 ipu_kernels = ["ipu_harness", "ipu_isa"]
 
+# The memory what-if tool (performance modelling): it stages a kernel through
+# the framework, steps it through the emulator's reference-model API and reads
+# row sizes from the ISA. Nothing imports ipu_memsim. Never ipu_kernels: the
+# framework loads kernel-side modules as plugins.
+ipu_memsim = ["ipu_isa", "ipu_emu", "ipu_harness"]
+
 # A shared reference never imports the emulator, nor the framework or the rest
 # of ipu_kernels (both reach ipu_emu): one that does is a copy of the code under
 # test. Format codecs come from ipu_isa.

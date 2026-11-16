@@ -1,0 +1,4 @@
+# TOY MODEL. Every access stalls `penalty` cycles (an upper bound).
+[model]
+kind = "all_miss"
+penalty = 10

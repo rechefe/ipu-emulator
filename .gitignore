@@ -25,3 +25,6 @@
 
 # Local benchmark results (bazel run //tools/bench:bench)
 bench-results/
+
+# Memory what-if tool outputs: traces, sweep tables, plots (src/ipu-memsim).
+/memsim-out/

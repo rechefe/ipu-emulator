@@ -1,0 +1,5 @@
+# TOY MODEL. The first access to each 1024-row page stalls `penalty` cycles.
+[model]
+kind = "page_first_touch"
+page_rows = 1024
+penalty = 1124      # placeholder: 100 + 1024 rows at one row per cycle

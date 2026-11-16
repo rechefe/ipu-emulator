@@ -1,0 +1,3 @@
+# Perfect memory: reproduces the emulator's cycle count.
+[model]
+kind = "ideal"

@@ -183,6 +183,7 @@ _PACKAGE_SOURCES = [
     "//src/ipu-harness:py_sources",
     "//src/ipu-isa:py_sources",
     "//src/ipu-kernels:py_sources",
+    "//src/ipu-memsim:py_sources",
 ]
 
 py_binary(

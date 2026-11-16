@@ -1,0 +1,9 @@
+# TOY MODEL. A textbook cache the size of today's XMEM (2 MB = 16384 rows).
+[model]
+kind = "cache"
+size_rows = 16384        # or "inf" for an infinite cache
+line_rows = 1            # rows fetched together on a miss
+assoc = 0                # 0 = fully associative
+miss_penalty = 10
+preloaded = false
+write_allocate_free = true
