@@ -68,12 +68,14 @@ def knees(
             "stall_at_most_banks": final,
             "threshold_percent": threshold_percent,
         }
-        margin = None if final is None else max(0.01, final * plateau_percent / 100.0)
+        # "On the plateau": no more than this much stall, or None when even
+        # the largest configuration could not run.
+        ceiling = None if final is None else final + max(0.01, final * plateau_percent / 100.0)
         found = {
             "threshold": _first_from_which(points, lambda stall: stall <= threshold_percent),
             "plateau": None
-            if final is None
-            else _first_from_which(points, lambda stall: stall <= final + margin),
+            if ceiling is None
+            else _first_from_which(points, lambda stall, top=ceiling: stall <= top),
         }
         for name, banks in found.items():
             entry[f"{name}_knee_banks"] = banks
