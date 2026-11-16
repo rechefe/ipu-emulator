@@ -30,7 +30,7 @@ filegroup(
 # Example model configs and network descriptions.
 filegroup(
     name = "configs",
-    srcs = glob(["configs/*.toml", "networks/*.toml", "experiments/*.toml"]),
+    srcs = glob(["configs/**/*.toml", "networks/*.toml", "experiments/*.toml"]),
 )
 
 # The memory what-if tool: trace recorder, replay engine, memory models.
@@ -122,6 +122,18 @@ py_pytest_test(
     name = "test_formulas",
     srcs = ["test/test_formulas.py"],
     data = [":configs"],
+    deps = [
+        ":ipu_memsim_lib",
+        ":test_support",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# The FPGA comparison harness, end to end on synthetic measurements.
+py_pytest_test(
+    name = "test_fpga",
+    srcs = ["test/test_fpga.py"],
     deps = [
         ":ipu_memsim_lib",
         ":test_support",

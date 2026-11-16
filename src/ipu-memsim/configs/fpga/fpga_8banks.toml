@@ -1,0 +1,9 @@
+# An FPGA run with half the banks enabled (if the FPGA allows it; question Q15).
+[model]
+kind = "cache_unit"
+num_banks = 8
+bank_rows = 1024
+
+[dram]
+kind = "bank_fill"
+fill_cycles_per_bank = 1024

@@ -1,0 +1,10 @@
+# An FPGA run with the full XMEM: 16 banks of 1024 rows. The fill time here
+# is a placeholder; `memsim fpga-compare --fit` replaces it by the fitted one.
+[model]
+kind = "cache_unit"
+num_banks = 16
+bank_rows = 1024
+
+[dram]
+kind = "bank_fill"
+fill_cycles_per_bank = 1024
