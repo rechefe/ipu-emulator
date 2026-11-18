@@ -148,18 +148,30 @@ bank(page_number) = xmem_bank_list[page_number % xmem_num_of_banks]
 
 #### 5.2.1 CRM Side
 
-**Prefetch** (`external_memory_en == 1`):
+**Prefetch:**
 
-The CRM does these steps for each page in that order:
+The CRM does this logic for each page:
 
-1. The CRM waits until `bank(page_number).tag == FREE`.
-2. The CRM reads the page from external memory.
-3. The CRM writes the page into the bank.
-4. After the write is complete, the CRM sets `bank(page_number).tag` to the TAG of the page.
+```text
+if (bank(page_number).tag == FREE)
+    if (external_memory_en == 1)
+        prefetch the page from external memory into the bank
+    data_valid = 1
+    if (data_valid = 1)
+        bank(page_number).tag = TAG                      // TAG of the page
+```
 
 The CRM does this sequence `num_loops` times.
 
 **Snooping:**
+
+```text
+if (snoop_address)
+    bank(page_number).tag = FREE  
+    
+if (hint)
+    all banks = FREE                   // TAG of the page
+```
 
 The CRM keeps a snoop address for the table. The CRM uses the snoop address to release banks.
 snoop_address = virtual_address - jump_back
@@ -180,12 +192,30 @@ if (bank(page_number).tag != TAG)
 
 ### 5.3 Write-Only Table
 
+#### 5.3.1 CRM Side
+
 **Bank claim:**
 
-The CRM does these steps for each `page_number` from `0` to `last_page`, in order:
+The CRM does this logic for each page in that order:
 
-1. The CRM waits until `bank(page_number).tag == FREE`.
-2. The CRM sets `bank(page_number).tag` to the TAG of the page.
+```text
+if (bank(page_number).tag == FREE)
+    data_valid = 1
+    bank(page_number).tag = TAG                      // TAG of the page
+```
+
+**Snooping:**
+
+The CRM keeps a snoop address for the table. The CRM uses the snoop address to release banks.
+snoop_address = virtual_address - jump_back
+The IPU cannot write an address below `snoop_address` again. Thus, the CRM can release these addresses.
+> **Note:** The CRM releases a full bank only. Thus, the CRM releases a bank only when `snoop_address` crosses the end of that bank.
+
+If `external_memory_en == 1`, the CRM writes the page from the bank to external memory before it releases the bank.
+
+The CRM also monitors a hint from the IPU. The CRM uses this hint to release all the banks of the table.
+
+#### 5.3.2 IPU Side
 
 **IPU write:**
 
@@ -193,28 +223,6 @@ The CRM does these steps for each `page_number` from `0` to `last_page`, in orde
 if (bank(page_number).tag != TAG)
     IPU_stall
 ```
-
-**Write-back** (`external_memory_en == 1`):
-
-The CRM keeps `ready_page` for the table. The value starts at `0`.
-The CRM does this logic for each IPU write of the table:
-
-```text
-if (ready_page < oldest_page)
-    ready_page = oldest_page
-
-if (virtual_address == last_address)
-    ready_page = last_page + 1
-```
-
-The IPU does not write a page below `ready_page` again.
-
-The CRM does these steps for each `page_number` from `0` to `last_page`, in order:
-
-1. The CRM waits until `page_number < ready_page`.
-2. The CRM reads the page from the bank.
-3. The CRM writes the page to external memory.
-4. After the write is complete, the CRM sets `bank(page_number).tag = FREE`.
 
 ### 5.4 Read-After-Write Table
 
@@ -251,3 +259,4 @@ cache_element = {external_element, (8 - num_bits)'b0}
 
 ---
 
+b 
