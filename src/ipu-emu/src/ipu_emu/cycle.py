@@ -46,6 +46,8 @@ from collections.abc import Callable, Mapping
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
+from mypy_extensions import mypyc_attr
+
 from ipu_emu.errors import (
     CrContentError,
     EmulatorError,
@@ -313,6 +315,31 @@ def resolver_for(state: IpuState) -> OperandResolver:
     return PackedResolver(state) if state.prototyping else FaithfulResolver(state)
 
 
+# mypyc cannot compile a nested function inside a non-native class's method,
+# so Cycle's two closures are built by these module-level helpers.
+def _schedule_dropper(
+    schedules: dict[int, tuple[Mapping[str, int] | None, Schedule | None]],
+) -> Callable[[int], None]:
+    """The IMEM write observer that drops *schedules*' entry for the written PC."""
+
+    def drop(pc: int) -> None:
+        schedules.pop(pc, None)
+
+    return drop
+
+
+def _observer_remover(ref: weakref.ref[Cycle], observer: CycleObserver) -> Callable[[], None]:
+    """A function that detaches *observer* from the cycle *ref* points to."""
+
+    def remove() -> None:
+        cycle = ref()
+        if cycle is not None:
+            cycle._observers = tuple(o for o in cycle._observers if o is not observer)
+
+    return remove
+
+
+@mypyc_attr(native_class=False)  # weakly referenced (weakref.finalize, AliasObserver)
 class Cycle:
     """Executes the instruction word at the PC, one cycle per call.
 
@@ -349,7 +376,7 @@ class Cycle:
         # is written, and the IMEM write observer drops it then.
         self._schedules: dict[int, tuple[Mapping[str, int] | None, Schedule | None]] = {}
         schedules = self._schedules
-        remove = state.inst_mem.add_write_observer(lambda pc: schedules.pop(pc, None))
+        remove = state.inst_mem.add_write_observer(_schedule_dropper(schedules))
         # The observer holds the dict, not the cycle; it is removed when the
         # cycle is collected, so a state outliving many engines does not
         # collect dead observers.
@@ -376,14 +403,7 @@ class Cycle:
             A function that detaches it; calling it twice is harmless.
         """
         self._observers = self._observers + (observer,)
-        ref = weakref.ref(self)
-
-        def remove() -> None:
-            cycle = ref()
-            if cycle is not None:
-                cycle._observers = tuple(o for o in cycle._observers if o is not observer)
-
-        return remove
+        return _observer_remover(weakref.ref(self), observer)
 
     @property
     def observers(self) -> tuple[CycleObserver, ...]:
@@ -448,6 +468,7 @@ class Cycle:
                 self._reserved(pc, schedule.reserved)
             self._take_snapshot()
             self._ipu.issuer.observers = self.observers
+            assert inst is not None
             return self._evaluate_break(inst, schedule)
         except (EmulatorFault, XMemBoundsError) as error:
             raise self._halt_on(error, pc) from None
@@ -497,6 +518,7 @@ class Cycle:
                 if honour_break and schedule.break_op is not None:
                     issuer = self._ipu.issuer
                     issuer.observers = observers
+                    assert inst is not None
                     if issuer.dispatch(schedule.break_op, inst) is CycleOutcome.BREAK:
                         return CycleOutcome.BREAK
             self._run(pc, inst, schedule, observers)
@@ -539,7 +561,7 @@ class Cycle:
         found = None
         for op in checks:
             try:
-                fault = op.plan.check(ipu, **operands_of(op))
+                fault = op.plan.check(ipu, **operands_of(op))  # type: ignore[misc]
             except CrContentError:
                 # An invalid QF, DS or constant (ADR 0007): a configuration
                 # error, raised here so the word leaves the state as a fault does.
@@ -637,7 +659,7 @@ class Cycle:
         lr_position = schedule.lr_position
         for op in slot_ops[:lr_position]:
             if op.operands is None:  # a skipped NOP, issued for its counter
-                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)
+                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)  # type: ignore[arg-type]
             else:
                 dispatch(op, inst)
         if schedule.lr_conflict is not None:
@@ -649,7 +671,7 @@ class Cycle:
             self._check(schedule.checks)
         for op in slot_ops[lr_position:]:
             if op.operands is None:
-                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)
+                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)  # type: ignore[arg-type]
             else:
                 dispatch(op, inst)
 

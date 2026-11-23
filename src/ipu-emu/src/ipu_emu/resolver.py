@@ -126,7 +126,7 @@ class FaithfulResolver:
         """See :meth:`OperandResolver.resolve`."""
         state = self._state
         live = state.regfile
-        operands = dict(encoded)
+        operands: dict[str, Any] = dict(encoded)
         for read in plan.reads:
             source = snapshot if read.from_snapshot else live
             raw = operands[read.name]
@@ -194,7 +194,7 @@ class PackedResolver:
         """See :meth:`OperandResolver.resolve`."""
         state = self._state
         live = state.regfile
-        operands = dict(encoded)
+        operands: dict[str, Any] = dict(encoded)
         for read in plan.reads:
             source = snapshot if read.from_snapshot else live
             raw = operands[read.name]

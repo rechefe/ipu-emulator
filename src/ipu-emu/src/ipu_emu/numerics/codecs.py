@@ -144,10 +144,10 @@ def _first_nan_wins(a: Lanes | np.generic, result: Lanes) -> Lanes:
 class _FloatCodec(_Codec):
     """Accumulation for every float format: float64 arithmetic, one float32 rounding."""
 
-    def mult(self, a: Lanes, b: Lanes | np.generic) -> npt.NDArray[np.float64]:
+    def mult(self, a: Lanes, b: Lanes | np.generic | float) -> npt.NDArray[np.float64]:
         """See :meth:`LaneCodec.mult`."""
         with np.errstate(all="ignore"):
-            return _first_nan_wins(a, a * b)
+            return _first_nan_wins(a, a * b)  # type: ignore[operator]
 
     def add(self, a: Lanes, b: Lanes) -> npt.NDArray[np.float64]:
         """See :meth:`LaneCodec.add`."""
@@ -186,7 +186,7 @@ class _FloatCodec(_Codec):
             _pack_lanes_one_by_one("<f", out, values.tolist())
             return
         raw = narrowed.tobytes()
-        out[: len(raw)] = raw
+        out[: len(raw)] = raw  # type: ignore[index]
 
     def acc_add(self, a: Lanes, b: Lanes) -> npt.NDArray[np.float64]:
         """See :meth:`LaneCodec.acc_add`: :meth:`add` (rounded once, at the store)."""
@@ -203,7 +203,7 @@ class _FloatCodec(_Codec):
         with np.errstate(all="ignore"):
             narrowed = values.astype("<f4")
         raw = narrowed.tobytes()
-        out[: len(raw)] = raw
+        out[: len(raw)] = raw  # type: ignore[index]
         if np.isfinite(narrowed).all():
             return _NO_EVENTS
         events: set[ArithmeticEvent] = set()

@@ -31,6 +31,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 import numpy as np
+from mypy_extensions import mypyc_attr
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegKind
 from ipu_emu.errors import (
@@ -108,6 +109,7 @@ def _without(observers: tuple, fn: Callable) -> tuple:
     return observers
 
 
+@mypyc_attr(native_class=False)  # accessors are attached with setattr below
 class RegFile:
     """Register file whose layout is defined by ``REGFILE_SCHEMA``.
 
@@ -117,6 +119,16 @@ class RegFile:
     ``descriptor.size_bytes * descriptor.count`` bytes.  Registers with
     ``word_view=True`` additionally expose a NumPy uint32 view.
     """
+
+    # The generated accessors the hot modules call, declared for the type
+    # checker (attached at run time by _attach_default_accessors_to_class).
+    get_lr: Callable[[int], int]
+    set_lr: Callable[[int, int], None]
+    get_cr: Callable[[int], int]
+    set_cr: Callable[[int, int], None]
+    get_r_mask: Callable[[], bytearray]
+    set_r_mask: Callable[[bytes | bytearray], None]
+    set_r_acc_word: Callable[[int, int], None]
 
     def __init__(self, schema: list[RegDescriptor] | None = None) -> None:
         self._schema = schema or REGFILE_SCHEMA

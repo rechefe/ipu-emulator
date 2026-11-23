@@ -152,7 +152,9 @@ def _ra_row(ipu: Ipu, codec: LaneCodec, ra: bytearray, nx8: Nx8Format | None) ->
     """The resolved ``ra`` operand (R0 or R1's bytes), decoded with that register's metadata."""
     if nx8 is None:
         return codec.decode(ra)
-    index = _MULT_STAGE_MAP[ipu.issuer.current.encoded["ra"]][1]
+    current = ipu.issuer.current
+    assert current is not None
+    index = _MULT_STAGE_MAP[current.encoded["ra"]][1]
     return codec.decode(ra, LANES, nx8, _metadata(ipu, "r_meta", index))
 
 

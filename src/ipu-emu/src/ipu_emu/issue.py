@@ -132,12 +132,15 @@ class Issuer:
             The op's fact record, for :meth:`execute`.
         """
         ipu = self._ipu()
+        assert ipu is not None
         plan = op.plan
         ipu.view.plan = plan
+        encoded = op.operands
+        assert encoded is not None
         operands = (
-            self._resolve(plan, op.operands, ipu.snapshot_buffer)
+            self._resolve(plan, encoded, ipu.snapshot_buffer)  # type: ignore[arg-type]
             if plan.reads
-            else dict(op.operands)
+            else dict(encoded)
         )
         if plan.stat is not None:
             stats = ipu.state.stats
@@ -145,7 +148,7 @@ class Issuer:
         if plan.is_mult or plan.alias_checks:
             return self._probe(ipu, op, inst, operands)
         return _new_facts(
-            _IssueFacts, (op.slot, plan, op.operands, operands, None, None, op.lr_writes, None)
+            _IssueFacts, (op.slot, plan, encoded, operands, None, None, op.lr_writes, None)
         )
 
     @staticmethod
@@ -155,7 +158,9 @@ class Issuer:
         """The identity verdict and alias of an op whose reads are resolved: its record."""
         plan = op.plan
         encoded = op.operands
-        identity = mask = None
+        assert encoded is not None
+        identity: MultIdentity | None = None
+        mask: int | None = None
         if plan.mask_cr_operand is not None:
             # Read now, before the handler, which applies this same mask, in
             # the views the instruction declares (ipu.view's plan is this op's).
@@ -173,7 +178,7 @@ class Issuer:
             identity = _MULT_IDENTITIES[
                 bool(plan.scalar_kind)
                 and mult.scalar_is_one(
-                    ipu, plan.scalar_kind, operands[plan.scalar_operand], plan.scalar_operand
+                    ipu, plan.scalar_kind, operands[plan.scalar_operand], plan.scalar_operand  # type: ignore[index, arg-type]
                 ),
                 mult.vector_is_one(ipu, plan.inst_name, operands, encoded),
             ]
@@ -187,11 +192,14 @@ class Issuer:
         issued: no counter, no observer (the precise-fault check, E04-20).
         Also points the cycle view at *op*'s plan, as issuing does."""
         ipu = self._ipu()
+        assert ipu is not None
         plan = op.plan
         ipu.view.plan = plan
+        encoded = op.operands
+        assert encoded is not None
         if plan.reads:
-            return self._resolve(plan, op.operands, ipu.snapshot_buffer)
-        return dict(op.operands)
+            return self._resolve(plan, encoded, ipu.snapshot_buffer)  # type: ignore[arg-type]
+        return dict(encoded)
 
     def dispatch(self, op: IssuedOp, inst: Mapping[str, int]) -> Any:
         """:meth:`issue` then :meth:`execute`, fused for the cycle's hot path.
@@ -206,11 +214,15 @@ class Issuer:
             The handler's return value.
         """
         ipu = self._ipu()
+        assert ipu is not None
         plan = op.plan
         ipu.view.plan = plan
         encoded = op.operands
+        assert encoded is not None
         operands = (
-            self._resolve(plan, encoded, ipu.snapshot_buffer) if plan.reads else dict(encoded)
+            self._resolve(plan, encoded, ipu.snapshot_buffer)  # type: ignore[arg-type]
+            if plan.reads
+            else dict(encoded)
         )
         stat = plan.stat
         if stat is not None:
@@ -251,6 +263,7 @@ class Issuer:
             inst: The whole word.
         """
         ipu = self._ipu()
+        assert ipu is not None
         view = ipu.view
         resolve = self._resolve
         issued = []
@@ -262,7 +275,12 @@ class Issuer:
             # The LR sub-slots' hot path: just the reads (as issue() does).
             view.plan = plan
             encoded = op.operands
-            operands = resolve(plan, encoded, ipu.snapshot_buffer) if plan.reads else dict(encoded)
+            assert encoded is not None
+            operands = (
+                resolve(plan, encoded, ipu.snapshot_buffer)  # type: ignore[arg-type]
+                if plan.reads
+                else dict(encoded)
+            )
             issued.append(
                 _new_facts(
                     _IssueFacts,
@@ -288,6 +306,7 @@ class Issuer:
             The handler's return value (a ``CycleOutcome`` for BREAK, else ``None``).
         """
         ipu = self._ipu()
+        assert ipu is not None
         self.current = facts
         ipu.view.plan = facts.plan
         if self.observers:
