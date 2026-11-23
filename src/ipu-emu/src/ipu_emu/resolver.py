@@ -29,7 +29,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from ipu_emu.errors import EmulatorError
 from ipu_emu.geometry import WIDE_REGISTERS
-from ipu_isa.cr_halves import lcr_half_code, lcr_half_value
+from ipu_isa.errors import IsaValueError
+from ipu_isa.cr_halves import LcrHalf, lcr_half_code, lcr_half_value
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
 if TYPE_CHECKING:
@@ -152,6 +153,72 @@ _WORD = struct.Struct("<I").unpack_from
 _BANK_COUNT = {READ_LR: LR_REG_COUNT, READ_CR: CR_REG_COUNT}
 
 
+def _lcr_half_table() -> dict[int, LcrHalf]:
+    """Every valid ``LcrHalfIdx`` code's register (``lcr_half_code`` is a pure function of it)."""
+    table: dict[int, LcrHalf] = {}
+    code = 0
+    while True:
+        try:
+            table[code] = lcr_half_code(code)
+        except IsaValueError:
+            return table
+        code += 1
+
+
+_LCR_HALVES = _lcr_half_table()
+
+# How one read of a decoded op resolves (PackedResolver's per-word plan): a
+# packed LR/CR word, a sign-extended CR half of one, or a mult-stage register.
+_STEP_WORD = 0
+_STEP_HALF = 1
+_STEP_MULT = 2
+
+#: (operand name, from the snapshot, step kind, bank read code, byte offset or
+#: mult-stage code, the LcrHalf a half step sign-extends).
+_Step = tuple[str, bool, int, int, int, "LcrHalf | None"]
+
+
+def _read_steps(plan: SlotPlan, encoded: Mapping[str, int]) -> tuple[_Step, ...] | None:
+    """The reads of (plan, encoded) as steps, or ``None`` when any of them needs
+    the general path (an index the packed banks cannot serve, a code that is not
+    an ``LcrHalfIdx`` register, a field that is not an int, a repeated or
+    missing operand): it raises what it always raised."""
+    steps: list[_Step] = []
+    names: set[str] = set()
+    for read in plan.reads:
+        name = read.name
+        if name in names or name not in encoded:
+            return None
+        names.add(name)
+        raw_value: object = encoded[name]
+        if type(raw_value) is not int:
+            return None
+        raw: int = encoded[name]
+        code = read.code
+        snap = bool(read.from_snapshot)
+        if code == READ_LCR:
+            if raw < LR_REG_COUNT:
+                code = READ_LR
+            else:
+                code, raw = READ_CR, raw - LR_REG_COUNT
+        if code == READ_LR or code == READ_CR:
+            if not 0 <= raw < _BANK_COUNT[code]:
+                return None
+            steps.append((name, snap, _STEP_WORD, code, raw * 4, None))
+        elif code == READ_LCR_HALF:
+            operand = _LCR_HALVES.get(raw)
+            if operand is None:
+                return None
+            bank = READ_LR if operand.bank == "lr" else READ_CR
+            if operand.bank not in ("lr", "cr") or not 0 <= operand.index < _BANK_COUNT[bank]:
+                return None
+            steps.append((name, snap, _STEP_HALF, bank, operand.index * 4, operand))
+        elif code == READ_MULT_STAGE:
+            steps.append((name, snap, _STEP_MULT, 0, raw, None))
+        # any other read code passes the field through, as resolve() does
+    return tuple(steps)
+
+
 class PackedResolver:
     """Resolves LR and CR reads with ``struct.unpack_from`` over packed bank views.
 
@@ -164,7 +231,7 @@ class PackedResolver:
         state: The state whose live register file and wide-vector flag are read.
     """
 
-    __slots__ = ("_banks", "_state")
+    __slots__ = ("_banks", "_state", "_steps")
 
     #: Register files whose views are kept: the live file and a snapshot, with
     #: room for a replaced one. More than this and the cache starts over.
@@ -175,6 +242,10 @@ class PackedResolver:
         # id(register file) -> (the file, {read code: its bank's view}). The
         # file is held so its id cannot be reused while the entry exists.
         self._banks: dict[int, tuple[RegFile, dict[int, memoryview]]] = {}
+        # id(encoded operands) -> (them, the plan, their read steps or None).
+        # The encoded dict is the word's schedule's own (never mutated); the
+        # entry holds it, so its id is not reused while the entry exists.
+        self._steps: dict[int, tuple[Mapping[str, int], SlotPlan, tuple[_Step, ...] | None]] = {}
 
     def _views(self, source: RegFile) -> dict[int, memoryview]:
         entry = self._banks.get(id(source))
@@ -191,7 +262,54 @@ class PackedResolver:
     def resolve(
         self, plan: SlotPlan, encoded: Mapping[str, int], snapshot: RegFile
     ) -> dict[str, Any]:
-        """See :meth:`OperandResolver.resolve`."""
+        """See :meth:`OperandResolver.resolve`.
+
+        Each op's reads are decoded once (:func:`_read_steps`, cached per
+        encoded-operand dict); only the register reads run per call. An op the
+        steps cannot serve takes :meth:`_resolve_general`, the same result.
+        """
+        entry = self._steps.get(id(encoded))
+        if entry is None or entry[0] is not encoded or entry[1] is not plan:
+            if len(self._steps) >= 1 << 16:
+                self._steps.clear()
+            entry = (encoded, plan, _read_steps(plan, encoded))
+            self._steps[id(encoded)] = entry
+        steps = entry[2]
+        if steps is None:
+            return self._resolve_general(plan, encoded, snapshot)
+        operands: dict[str, Any] = dict(encoded)
+        if not steps:
+            return operands
+        state = self._state
+        live = state.regfile
+        views_snap: dict[int, memoryview] | None = None
+        views_live: dict[int, memoryview] | None = None
+        for name, snap, kind, bank, offset, half in steps:
+            if kind == _STEP_MULT:
+                operands[name] = resolve_mult_stage(
+                    offset, snapshot if snap else live, state.codec.element_bytes != 1
+                )
+                continue
+            if snap:
+                if views_snap is None:
+                    views_snap = self._views(snapshot)
+                views = views_snap
+            else:
+                if views_live is None:
+                    views_live = self._views(live)
+                views = views_live
+            word: int = _WORD(views[bank], offset)[0]
+            if kind == _STEP_WORD:
+                operands[name] = word
+            else:
+                assert half is not None
+                operands[name] = lcr_half_value(half, word)
+        return operands
+
+    def _resolve_general(
+        self, plan: SlotPlan, encoded: Mapping[str, int], snapshot: RegFile
+    ) -> dict[str, Any]:
+        """:meth:`resolve` one read at a time (every case, errors included)."""
         state = self._state
         live = state.regfile
         operands: dict[str, Any] = dict(encoded)

@@ -474,7 +474,7 @@ def _create_accessor_methods(schema: list[RegDescriptor]) -> dict[str, Any]:
             # ── Scalar register (LR, CR) ──────────────────────────
             # get_{name}(index) → int
             # set_{name}(index, value)
-            _add_scalar_accessors(methods, name)
+            _add_scalar_accessors(methods, name, desc, schema)
         else:
             # ── Vector (byte-blob) register ───────────────────────
             if desc.count > 1:
@@ -503,18 +503,64 @@ def _create_accessor_methods(schema: list[RegDescriptor]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _add_scalar_accessors(methods: dict, name: str) -> None:
+_UNPACK_WORD = struct.Struct("<I").unpack_from
+_PACK_WORD = struct.Struct("<I").pack_into
+
+
+def _add_scalar_accessors(
+    methods: dict, name: str, desc: RegDescriptor, schema: list[RegDescriptor]
+) -> None:
+    # A valid int index of a 4-byte scalar bank reads its word directly; that is
+    # what get_scalar does after its checks pass. Anything else (and a register
+    # whose name is also some register's alias) takes get_scalar, which raises.
+    direct = desc.size_bytes == 4 and not any(name in d.debug_aliases for d in schema)
+    count = desc.count
+
     def _make_get(n: str = name):
-        def get_val(self, index: int) -> int:
-            return self.get_scalar(n, index)
+        if direct:
+
+            def get_val(self, index: int) -> int:
+                if type(index) is int and 0 <= index < count:
+                    return _UNPACK_WORD(self._storage[n], index * 4)[0]
+                return self.get_scalar(n, index)
+
+        else:
+
+            def get_val(self, index: int) -> int:
+                return self.get_scalar(n, index)
 
         get_val.__name__ = f"get_{n}"
         get_val.__doc__ = f"Get {n}[index] as a 32-bit integer."
         return get_val
 
+    # set_scalar's checks, for a valid int index and value of an LR or CR: a
+    # read-only CR (and everything unusual) still goes through set_scalar.
+    direct_set = direct and desc.kind in (RegKind.CR, RegKind.LR)
+    read_only = CR_READ_ONLY_INITIAL_VALUES if desc.kind == RegKind.CR else {}
+
     def _make_set(n: str = name):
-        def set_val(self, index: int, value: int) -> None:
-            self.set_scalar(n, index, value)
+        if direct_set:
+
+            def set_val(self, index: int, value: int) -> None:
+                if (
+                    type(index) is int
+                    and type(value) is int
+                    and 0 <= index < count
+                    and index not in read_only
+                ):
+                    offset = index * 4
+                    observers = self._observers
+                    if observers:
+                        for observer in observers:
+                            observer(n, offset, 4)
+                    _PACK_WORD(self._storage[n], offset, value & LR_CR_SCALAR_VALUE_MASK)
+                    return
+                self.set_scalar(n, index, value)
+
+        else:
+
+            def set_val(self, index: int, value: int) -> None:
+                self.set_scalar(n, index, value)
 
         set_val.__name__ = f"set_{n}"
         set_val.__doc__ = f"Set {n}[index] = value (32-bit)."
