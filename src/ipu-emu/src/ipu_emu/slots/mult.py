@@ -75,6 +75,7 @@ _LANE_INDEX: Final = np.arange(LANES)
 # in every element width: ``r_cyclic`` is its 1-byte-element form.
 _RA_LANES: Final = 2 * LANES
 _RING_LANES: Final[int] = _reg_sizes["r_cyclic"]["size_bytes"]
+_RING_ROWS: Final[int] = _RING_LANES // LANES
 
 # One R_MASK slot (128 bits) with every lane active.
 _ALL_ONES_MASK_SLOT: Final = b"\xff" * 16
@@ -179,34 +180,34 @@ def _r_cyclic_window(ipu: Ipu, codec: LaneCodec, rc_idx: int, nx8: Nx8Format | N
     return ring[(start + _LANE_INDEX) % _RING_LANES]
 
 
-def _decode_rows32(
-    ipu: Ipu, codec: LaneCodec, register: str, meta_register: str, rows: int, nx8: Nx8Format | None
-) -> npt.NDArray[np.float32]:
-    """:func:`_decode_rows` as float32 (the same values)."""
-    buf = ipu.view.read(register)
-    if nx8 is None:
-        return codec.decode32(buf, rows * LANES)
-    step = LANES * codec.element_bytes
-    return np.concatenate(
-        [
-            codec.decode32(buf[k * step :], LANES, nx8, _metadata(ipu, meta_register, k))
-            for k in range(rows)
-        ]
-    )
-
-
 def _r_cyclic_window32(
     ipu: Ipu, codec: LaneCodec, rc_idx: int, nx8: Nx8Format | None
 ) -> npt.NDArray[np.float32]:
-    """:func:`_r_cyclic_window` as float32 (the same values, the same reads)."""
+    """:func:`_r_cyclic_window` as float32 (the same values).
+
+    The window's LANES elements come from at most two of the ring's rows (the
+    one *rc_idx* falls in and the next, wrapping): only those are decoded,
+    each with its own row's metadata in NX8, which is what decoding the whole
+    ring and indexing it gives.
+    """
     start = rc_idx % _RING_LANES
-    if nx8 is None and start + LANES <= _RING_LANES:
-        buf = ipu.view.read(vector_registers(ipu.state).r_cyclic)
-        return codec.decode32(buf[start * codec.element_bytes :], LANES)
-    ring = _decode_rows32(
-        ipu, codec, vector_registers(ipu.state).r_cyclic, "r_cyclic_meta", _RING_LANES // LANES, nx8
+    buf = ipu.view.read(vector_registers(ipu.state).r_cyclic)
+    step = LANES * codec.element_bytes
+    row, offset = divmod(start, LANES)
+    if nx8 is None:
+        if start + LANES <= _RING_LANES:
+            return codec.decode32(buf[start * codec.element_bytes :], LANES)
+        first = codec.decode32(buf[row * step :], LANES)
+        second = codec.decode32(buf, LANES)  # the window wraps to the ring's first row
+        return np.concatenate((first[offset:], second[:offset]))
+    first = codec.decode32(buf[row * step :], LANES, nx8, _metadata(ipu, "r_cyclic_meta", row))
+    if not offset:
+        return first
+    after = (row + 1) % _RING_ROWS
+    second = codec.decode32(
+        buf[after * step :], LANES, nx8, _metadata(ipu, "r_cyclic_meta", after)
     )
-    return ring[(start + _LANE_INDEX) % _RING_LANES]
+    return np.concatenate((first[offset:], second[:offset]))
 
 
 def _store_mult_res32(ipu: Ipu, product: npt.NDArray[np.float32]) -> None:
