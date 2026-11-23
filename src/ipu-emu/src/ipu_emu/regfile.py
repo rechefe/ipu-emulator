@@ -71,6 +71,7 @@ def _check_scalar(name: str, desc: RegDescriptor) -> None:
 
 #: ``fn(name, start, size)``: register *name* bytes ``[start, start+size)`` may change.
 RegisterObserver = Callable[[str, int, int], None]
+_memoryview: Final = memoryview  # a module constant: no builtins lookup per call
 
 
 class RegFileReader(Protocol):
@@ -195,7 +196,7 @@ class RegFile:
     def view(self, name: str) -> memoryview:
         """Register *name*'s bytes, read-only: no observer is told, and
         constant-ones provenance is kept. Writing through it raises ``TypeError``."""
-        return memoryview(self._storage[self._alias_map.get(name, name)]).toreadonly()
+        return _memoryview(self._storage[self._alias_map.get(name, name)]).toreadonly()
 
     def packed_bank(self, name: str) -> memoryview:
         """Scalar register bank *name* (LR or CR) as packed little-endian uint32
@@ -223,8 +224,14 @@ class RegFile:
             raise RegisterIndexError(
                 f"{canon}[{start}:{start + size}] out of range ({len(storage)} bytes)"
             )
-        self._forget_constant_ones(canon, start, size)
-        return memoryview(storage)[start : start + size]
+        for observer in self._observers:  # self._forget_constant_ones(...), inlined
+            observer(canon, start, size)
+        bits = self._constant_one_bytes
+        if canon in bits:
+            bits[canon] &= ~(((1 << size) - 1) << start)
+            if not bits[canon]:
+                del bits[canon]
+        return _memoryview(storage)[start : start + size]
 
     def raw(self, name: str) -> bytearray:
         """Return the ``bytearray`` backing register *name*.
@@ -543,13 +550,8 @@ def _add_scalar_accessors(
 
     def _make_set(n: str = name):
         def set_val(self, index: int, value: int) -> None:
-            if (
-                direct_set
-                and type(index) is int
-                and type(value) is int
-                and 0 <= index < count
-                and index not in read_only
-            ):
+            plain = direct_set and type(index) is int and type(value) is int
+            if plain and 0 <= index < count and index not in read_only:
                 offset = index * 4
                 observers = self._observers
                 if observers:
