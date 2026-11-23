@@ -44,7 +44,7 @@ ISA=$CHECKOUT/src/ipu-isa/src
 WORK=$CHECKOUT/build/mypyc
 
 MODULES=(
-  ipu_emu/regfile.py ipu_emu/issue.py ipu_emu/commit.py ipu_emu/resolver.py
+  ipu_emu/regfile.py ipu_emu/register_buffer.py ipu_emu/issue.py ipu_emu/commit.py ipu_emu/resolver.py
   ipu_emu/cycle_view.py ipu_emu/cycle.py ipu_emu/geometry.py ipu_emu/cr_contents.py
   ipu_emu/ipu.py ipu_emu/ipu_state.py ipu_emu/xmem.py ipu_emu/numerics/codecs.py
   ipu_emu/slots/__init__.py ipu_emu/slots/aaq.py ipu_emu/slots/aaq_exact.py
@@ -52,8 +52,8 @@ MODULES=(
   ipu_emu/slots/lr.py ipu_emu/slots/mult.py
   ipu_isa/types.py ipu_isa/cr_halves.py
 )
-# 23 modules (21 of ipu_emu, 2 of ipu_isa); with the shared mypyc runtime
-# library that makes 24 extension files.
+# 24 modules (22 of ipu_emu, 2 of ipu_isa); with the shared mypyc runtime
+# library that makes 25 extension files.
 
 clean() {
   find "$EMU/ipu_emu" "$ISA/ipu_isa" -name '*.so' -delete

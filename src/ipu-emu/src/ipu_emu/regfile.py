@@ -34,6 +34,7 @@ import numpy as np
 from mypy_extensions import mypyc_attr
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegKind
+from ipu_emu.register_buffer import layout_of, slices, write
 from ipu_emu.errors import (
     EmulatorError,
     RegisterIndexError,
@@ -133,17 +134,19 @@ class RegFile:
 
     def __init__(self, schema: list[RegDescriptor] | None = None) -> None:
         self._schema = schema or REGFILE_SCHEMA
-        self._storage: dict[str, bytearray] = {}
+        # Every register lives in one buffer (_buffer), in schema order;
+        # _storage maps each name to its writable slice of it (_layout: the
+        # slices' byte ranges), so a whole-file copy is one buffer copy.
+        self._layout = layout_of(self._schema)
+        self._buffer = bytearray(sum(size for _, size in self._layout.values()))
+        self._storage: dict[str, memoryview] = slices(self._buffer, self._layout)
         self._descriptors: dict[str, RegDescriptor] = {}
         self._alias_map: dict[str, str] = {}  # alias -> canonical name
         self._constant_one_bytes: dict[str, int] = {}
         self._mutable_exports: set[str] = set()
         self._observers: tuple[RegisterObserver, ...] = ()
-        self._copy_pairs: tuple[RegFile, tuple[tuple[bytearray, bytearray], ...]] | None = None
 
         for desc in self._schema:
-            total = desc.size_bytes * desc.count
-            self._storage[desc.name] = bytearray(total)
             self._descriptors[desc.name] = desc
             # register aliases
             for alias in desc.debug_aliases:
@@ -233,8 +236,8 @@ class RegFile:
                 del bits[canon]
         return _memoryview(storage)[start : start + size]
 
-    def raw(self, name: str) -> bytearray:
-        """Return the ``bytearray`` backing register *name*.
+    def raw(self, name: str) -> memoryview:
+        """Return the writable view of the storage backing register *name*.
 
         Deprecated: use :meth:`view` to read and :meth:`mutable` to write. The
         whole buffer escapes, so its provenance is never trusted again.
@@ -362,7 +365,7 @@ class RegFile:
         start = index * desc.size_bytes
         end = start + desc.size_bytes
         self._forget_constant_ones(canon, start, desc.size_bytes)
-        self._storage[canon][start:end] = data
+        write(self._storage[canon], start, end, data)
 
     # -- snapshot (cycle-start copy for VLIW) -------------------------------
 
@@ -387,8 +390,9 @@ class RegFile:
         new._constant_one_bytes = self._constant_one_bytes.copy()
         new._observers = ()
         new._mutable_exports = set()
-        new._copy_pairs = None
-        new._storage = {name: bytearray(buf) for name, buf in self._storage.items()}
+        new._layout = self._layout
+        new._buffer = bytearray(self._buffer)
+        new._storage = slices(new._buffer, self._layout)
         if self._schema is not REGFILE_SCHEMA:
             # A custom schema keeps its accessors on the instance, so the copy
             # needs its own bound set (the default schema's live on the class).
@@ -409,15 +413,10 @@ class RegFile:
             for name, bits in self._constant_one_bytes.items()
             if name not in other._mutable_exports
         }
-        if not other._observers and dst.keys() == self._storage.keys():
-            # Nothing to tell (nor to attach an observer mid-copy): copy each
-            # buffer into its twin, paired once per target (buffers are never replaced).
-            pairs = self._copy_pairs
-            if pairs is None or pairs[0] is not other:
-                pairs = (other, tuple((buf, dst[name]) for name, buf in self._storage.items()))
-                self._copy_pairs = pairs
-            for buf, twin in pairs[1]:
-                twin[:] = buf
+        if not other._observers and other._layout is self._layout:
+            # Nothing to tell (nor to attach an observer mid-copy), and the
+            # same layout: the whole file is one buffer copy.
+            other._buffer[:] = self._buffer
             return
         for name, buf in self._storage.items():
             for observer in other._observers:
@@ -588,7 +587,7 @@ def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> 
         def set_blob(self, data: bytes | bytearray) -> None:
             _check_size(n, data, sz)
             self._forget_constant_ones(n, 0, sz)
-            self._storage[n][:] = data
+            write(self._storage[n], 0, sz, data)
 
         set_blob.__name__ = f"set_{n}{suffix}"
         set_blob.__doc__ = f"Set {n} ({sz} bytes)."
@@ -620,7 +619,7 @@ def _add_indexed_vector_accessors(methods: dict, name: str, count: int, elem_siz
             _check_size(n, data, esz)
             start = index * esz
             self._forget_constant_ones(n, start, esz)
-            self._storage[n][start : start + esz] = data
+            write(self._storage[n], start, start + esz, data)
 
         set_elem.__name__ = f"set_{n}"
         set_elem.__doc__ = f"Set {n}[index] ({esz} bytes, {cnt} elements)."
@@ -660,7 +659,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
                 return bytearray(buf[start_idx : start_idx + length])
             first = buf[start_idx:sz]
             second = buf[: length - len(first)]
-            return bytearray(first + second)
+            return bytearray(first) + second
 
         get_at.__name__ = f"get_{n}_at"
         get_at.__doc__ = (
@@ -682,11 +681,11 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
             if length > first:
                 self._forget_constant_ones(n, 0, length - first)
             if start_idx + length <= sz:
-                buf[start_idx : start_idx + length] = data
+                write(buf, start_idx, start_idx + length, data)
             else:
                 first_len = sz - start_idx
-                buf[start_idx : start_idx + first_len] = data[:first_len]
-                buf[: length - first_len] = data[first_len:]
+                write(buf, start_idx, start_idx + first_len, data[:first_len])
+                write(buf, 0, length - first_len, data[first_len:])
 
         set_at.__name__ = f"set_{n}_at"
         set_at.__doc__ = (
