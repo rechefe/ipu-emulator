@@ -169,11 +169,12 @@ class ReferenceModel:
         self._closed = False
 
     def close(self) -> None:
-        """Release the model's engine and its commit recording (2.1.0).
+        """Release the model's engine and its commit recording, and detach its
+        alias profile, which keeps its counts (2.1.0).
 
-        The engine and the recording refer back to the model's state, so a
-        model is freed on release only once closed (else it waits for the
-        cyclic garbage collector). Its registers and memory can still be read
+        The engine, the recording and the profile refer back to the model's
+        state, so a model is freed on release only once closed (else it waits
+        for the cyclic garbage collector). Its registers and memory can still be read
         and written; :meth:`step`, :meth:`run` and :meth:`debug_run` raise
         ``ConfigurationError``. Calling it again does nothing.
         """
@@ -182,6 +183,9 @@ class ReferenceModel:
         self._closed = True
         self._collector.close()
         self._ipu.close()
+        profile = self._state.alias_profile
+        if profile is not None:
+            profile.detach()  # it keeps its counts; it observes the state no more
 
     # -- setup ---------------------------------------------------------------
 

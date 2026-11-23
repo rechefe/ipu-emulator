@@ -49,13 +49,15 @@ def count(state, alias, status="verified", subtype=None):
     )
 
 
-def test_profiled_state_is_freed_without_the_cycle_collector():
-    """state -> profile -> observer must not point back at the state: a
-    reference cycle would keep every profiled state's XMEM alive until the
-    cyclic garbage collector happens to run."""
+def test_a_detached_profile_frees_its_state_without_the_cycle_collector():
+    """state -> profile -> observer -> state is a reference cycle while the
+    profile observes (the state is compiled: no weak references to it);
+    ``detach`` (``ReferenceModel.close`` calls it) breaks it, so the state's
+    XMEM is freed on release, and the profile keeps its counts."""
     state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;\nHALT;;")
     profile = state.alias_profile
-    released = weakref.ref(state)
+    released = weakref.ref(state.xmem)
+    profile.detach()
     gc.disable()
     try:
         del state
@@ -580,10 +582,12 @@ def test_xmem_clear_under_profiler_is_constant_size():
     assert observer.cleared_epoch == observer.memory_epoch > 0
 
 
-def test_profiled_xmem_is_freed_without_the_cycle_collector():
-    """The observer keeps its removers; they must not pin XMEM in a cycle."""
+def test_profiled_xmem_is_freed_without_the_cycle_collector_once_detached():
+    """The observer keeps its removers; once the profile is detached (the
+    explicit-close contract) they must not pin XMEM in a cycle."""
     state = run("HALT;;")
     xmem = weakref.ref(state.xmem)
+    state.alias_profile.detach()
     gc.disable()
     try:
         del state

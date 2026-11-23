@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 import struct
-import weakref
 from typing import TYPE_CHECKING, Any
 
 from ipu_emu.alias_profile import Event
@@ -94,10 +93,10 @@ _WIDE_ELEMENT_BYTES = element_width_bytes(ElementFormat.FP32)
 class ExecutionObserver:
     def __init__(self, profile, state):
         self.profile = profile
-        # Weak: state -> alias_profile -> _bridge -> observer, so a strong
-        # reference back would make every profiled state (and its XMEM) wait
-        # for the cyclic garbage collector instead of being freed on release.
-        self._state = weakref.ref(state)
+        # state -> alias_profile -> _bridge -> this observer -> state: the
+        # profile's detach() (ReferenceModel.close does it) breaks the cycle,
+        # so a closed model's state and XMEM are freed on release.
+        self._state = state
         fmt = state.fmt
         # The 4-byte formats are emulator-only (the profile's ``mode`` names them).
         wide = is_wide_format(fmt)
@@ -138,14 +137,15 @@ class ExecutionObserver:
         return _CycleBinding(self, cycle)
 
     def detach(self):
-        """Stop observing the state's XMEM and register file."""
+        """Stop observing the state's XMEM and register file, and let go of the state."""
         for remove in self._removers:
             remove()
         self._removers = ()
+        self._state = None
 
     @property
     def state(self):
-        return self._state()
+        return self._state
 
     def register_write(self, name, start, size):
         bank = _BANKS.get(name)
