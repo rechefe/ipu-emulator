@@ -28,7 +28,7 @@ from ipu_emu.slots import mult
 if TYPE_CHECKING:
     from ipu_emu.cycle import CycleObserver, IssuedOp
     from ipu_emu.cycle_view import CycleView
-    from ipu_emu.ipu import Ipu, SlotPlan
+    from ipu_emu.ipu import Ipu, SlotPlan, _AliasCheck
     from ipu_emu.resolver import OperandResolver
 
 
@@ -320,6 +320,19 @@ class Issuer:
         return facts.plan.fn(ipu, **facts.operands)
 
 
+_FIRST_HARDWARE_ONLY: dict[int, tuple[SlotPlan, _AliasCheck | None]] = {}
+
+
+def _first_hardware_only(plan: SlotPlan) -> _AliasCheck | None:
+    """The first of *plan*'s alias checks that is hardware-only, or ``None`` (cached per plan)."""
+    entry = _FIRST_HARDWARE_ONLY.get(id(plan))
+    if entry is None or entry[0] is not plan:
+        first = next((check for check in plan.alias_checks if check.hardware_only), None)
+        entry = (plan, first)  # holds the plan, so its id is not reused
+        _FIRST_HARDWARE_ONLY[id(plan)] = entry
+    return entry[1]
+
+
 def _record_alias(
     ipu: Ipu,
     plan: SlotPlan,
@@ -342,6 +355,14 @@ def _record_alias(
     Returns:
         The alias ID counted, or ``None``.
     """
+    if identity is None or not (identity.vector or identity.cr):
+        # Every check that is not hardware-only needs one of the two verdicts,
+        # so the first hardware-only check (which always matches) is the hit.
+        first = _first_hardware_only(plan)
+        if first is None:
+            return None
+        ipu.state.stats.alias_hits[first.alias_id] += 1
+        return first.alias_id
     for check in plan.alias_checks:
         if not check.hardware_only:
             if identity is None or not (identity.vector if check.vector_only else identity.cr):

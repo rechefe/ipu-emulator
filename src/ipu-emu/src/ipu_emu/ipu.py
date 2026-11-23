@@ -288,7 +288,7 @@ class SlotPlan(NamedTuple):
     # From its ``read`` operands and ``implicit_reads``; a register whose
     # declared reads all share one view also has a ``(register, None)`` key.
     # ``CycleView`` serves handler reads from it (E04-12).
-    views: Mapping[tuple[str, str | None], bool]
+    views: dict[tuple[str, str | None], bool]
     # F-1: (operand name, field capacity, reserved codes) of every operand. The
     # union column can be wider than the operand type, so the capacity is the
     # type's width, not the column's.
@@ -474,7 +474,7 @@ def bind_handler(instruction: Instruction) -> Callable:
     return fn
 
 
-def read_views(instruction: Instruction) -> Mapping[tuple[str, str | None], bool]:
+def read_views(instruction: Instruction) -> dict[tuple[str, str | None], bool]:
     """Every read *instruction* declares, as :attr:`SlotPlan.views` holds it.
 
     Args:

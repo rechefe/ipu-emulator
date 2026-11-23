@@ -231,7 +231,7 @@ class PackedResolver:
         state: The state whose live register file and wide-vector flag are read.
     """
 
-    __slots__ = ("_banks", "_state", "_steps")
+    __slots__ = ("_banks", "_live", "_live_views", "_snap", "_snap_views", "_state", "_steps")
 
     #: Register files whose views are kept: the live file and a snapshot, with
     #: room for a replaced one. More than this and the cache starts over.
@@ -246,6 +246,13 @@ class PackedResolver:
         # The encoded dict is the word's schedule's own (never mutated); the
         # entry holds it, so its id is not reused while the entry exists.
         self._steps: dict[int, tuple[Mapping[str, int], SlotPlan, tuple[_Step, ...] | None]] = {}
+        # The views of the last snapshot and the last live file resolve() read
+        # (those of _views(), which the files are held by): the same two files
+        # are read cycle after cycle.
+        self._snap: RegFile | None = None
+        self._snap_views: dict[int, memoryview] = {}
+        self._live: RegFile | None = None
+        self._live_views: dict[int, memoryview] = {}
 
     def _views(self, source: RegFile) -> dict[int, memoryview]:
         entry = self._banks.get(id(source))
@@ -292,11 +299,19 @@ class PackedResolver:
                 continue
             if snap:
                 if views_snap is None:
-                    views_snap = self._views(snapshot)
+                    if snapshot is self._snap:
+                        views_snap = self._snap_views
+                    else:
+                        views_snap = self._views(snapshot)
+                        self._snap, self._snap_views = snapshot, views_snap
                 views = views_snap
             else:
                 if views_live is None:
-                    views_live = self._views(live)
+                    if live is self._live:
+                        views_live = self._live_views
+                    else:
+                        views_live = self._views(live)
+                        self._live, self._live_views = live, views_live
                 views = views_live
             word: int = _WORD(views[bank], offset)[0]
             if kind == _STEP_WORD:

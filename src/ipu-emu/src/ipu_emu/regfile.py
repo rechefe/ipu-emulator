@@ -138,6 +138,7 @@ class RegFile:
         self._constant_one_bytes: dict[str, int] = {}
         self._mutable_exports: set[str] = set()
         self._observers: tuple[RegisterObserver, ...] = ()
+        self._copy_pairs: tuple[RegFile, tuple[tuple[bytearray, bytearray], ...]] | None = None
 
         for desc in self._schema:
             total = desc.size_bytes * desc.count
@@ -379,6 +380,7 @@ class RegFile:
         new._constant_one_bytes = self._constant_one_bytes.copy()
         new._observers = ()
         new._mutable_exports = set()
+        new._copy_pairs = None
         new._storage = {name: bytearray(buf) for name, buf in self._storage.items()}
         if self._schema is not REGFILE_SCHEMA:
             # A custom schema keeps its accessors on the instance, so the copy
@@ -400,9 +402,15 @@ class RegFile:
             for name, bits in self._constant_one_bytes.items()
             if name not in other._mutable_exports
         }
-        if not other._observers:  # nothing to tell, nothing to attach one mid-copy
-            for name, buf in self._storage.items():
-                dst[name][:] = buf
+        if not other._observers and dst.keys() == self._storage.keys():
+            # Nothing to tell (nor to attach an observer mid-copy): copy each
+            # buffer into its twin, paired once per target (buffers are never replaced).
+            pairs = self._copy_pairs
+            if pairs is None or pairs[0] is not other:
+                pairs = (other, tuple((buf, dst[name]) for name, buf in self._storage.items()))
+                self._copy_pairs = pairs
+            for buf, twin in pairs[1]:
+                twin[:] = buf
             return
         for name, buf in self._storage.items():
             for observer in other._observers:
@@ -520,17 +528,10 @@ def _add_scalar_accessors(
     count = desc.count
 
     def _make_get(n: str = name):
-        if direct:
-
-            def get_val(self, index: int) -> int:
-                if type(index) is int and 0 <= index < count:
-                    return _UNPACK_WORD(self._storage[n], index * 4)[0]
-                return self.get_scalar(n, index)
-
-        else:
-
-            def get_val(self, index: int) -> int:
-                return self.get_scalar(n, index)
+        def get_val(self, index: int) -> int:
+            if direct and type(index) is int and 0 <= index < count:
+                return _UNPACK_WORD(self._storage[n], index * 4)[0]
+            return self.get_scalar(n, index)
 
         get_val.__name__ = f"get_{n}"
         get_val.__doc__ = f"Get {n}[index] as a 32-bit integer."
@@ -541,27 +542,22 @@ def _add_scalar_accessors(
     read_only = CR_READ_ONLY_INITIAL_VALUES if desc.kind == RegKind.CR else {}
 
     def _make_set(n: str = name):
-        if direct_set:
-
-            def set_val(self, index: int, value: int) -> None:
-                if (
-                    type(index) is int
-                    and type(value) is int
-                    and 0 <= index < count
-                    and index not in read_only
-                ):
-                    offset = index * 4
-                    observers = self._observers
-                    if observers:
-                        for observer in observers:
-                            observer(n, offset, 4)
-                    _PACK_WORD(self._storage[n], offset, value & LR_CR_SCALAR_VALUE_MASK)
-                    return
-                self.set_scalar(n, index, value)
-
-        else:
-            def set_val(self, index: int, value: int) -> None:
-                self.set_scalar(n, index, value)
+        def set_val(self, index: int, value: int) -> None:
+            if (
+                direct_set
+                and type(index) is int
+                and type(value) is int
+                and 0 <= index < count
+                and index not in read_only
+            ):
+                offset = index * 4
+                observers = self._observers
+                if observers:
+                    for observer in observers:
+                        observer(n, offset, 4)
+                _PACK_WORD(self._storage[n], offset, value & LR_CR_SCALAR_VALUE_MASK)
+                return
+            self.set_scalar(n, index, value)
 
         set_val.__name__ = f"set_{n}"
         set_val.__doc__ = f"Set {n}[index] = value (32-bit)."
