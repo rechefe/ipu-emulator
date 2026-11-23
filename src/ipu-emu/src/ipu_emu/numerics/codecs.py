@@ -123,6 +123,12 @@ class LaneCodec(Protocol):
         """See :meth:`_FloatCodec.acc_op32`."""
         ...
 
+    def acc_op32_lanes(
+        self, op: str, a_raw: Buffer, b: npt.NDArray[np.float32]
+    ) -> npt.NDArray[np.float32] | None:
+        """See :meth:`_FloatCodec.acc_op32_lanes`."""
+        ...
+
     def mult32(self, a: npt.NDArray[np.float32], b: object) -> npt.NDArray[np.float32] | None:
         """See :meth:`_FloatCodec.mult32`."""
         ...
@@ -264,8 +270,14 @@ class _FloatCodec(_Codec):
         stores, and that call reports no event. (``max`` returns one of its two
         operands per lane, so it is exact in either width.)
         """
+        return self.acc_op32_lanes(op, a_raw, np.frombuffer(b_raw, dtype=_F4, count=_LANES))
+
+    def acc_op32_lanes(
+        self, op: str, a_raw: Buffer, b: npt.NDArray[np.float32]
+    ) -> npt.NDArray[np.float32] | None:
+        """:meth:`acc_op32` with the second operand already as float32 lanes
+        (the MULT product that MULT_RES holds, handed over in one word)."""
         a = np.frombuffer(a_raw, dtype=_F4, count=_LANES)
-        b = np.frombuffer(b_raw, dtype=_F4, count=_LANES)
         with np.errstate(all="ignore"):
             if op == "add":
                 result = a + b

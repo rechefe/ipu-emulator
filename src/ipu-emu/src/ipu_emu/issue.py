@@ -22,6 +22,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
+import numpy as np
+import numpy.typing as npt
+
 from ipu_emu.geometry import effective_mult_mask
 from ipu_emu.slots import mult
 
@@ -109,7 +112,7 @@ class Issuer:
             (:mod:`ipu_emu.resolver`).
     """
 
-    __slots__ = ("_ipu", "_resolve", "_view", "current", "observers")
+    __slots__ = ("_ipu", "_resolve", "_view", "current", "mult_product", "observers", "prior_product")
 
     def __init__(self, ipu: Ipu, resolver: OperandResolver) -> None:
         self._ipu = weakref.ref(ipu)
@@ -122,6 +125,12 @@ class Issuer:
         #: The record of the op whose handler is running (or ran last); ``None``
         #: before the first execute.
         self.current: IssueFacts | None = None
+        #: The MULT -> ACC hand-over of one word (the fused path): the float32
+        #: lanes a MULT handler stored in MULT_RES (``mult_product``), which
+        #: become ``prior_product`` for the next op dispatched and are then
+        #: dropped. Every other way an op runs drops both.
+        self.mult_product: npt.NDArray[np.float32] | None = None
+        self.prior_product: npt.NDArray[np.float32] | None = None
         #: The observers told of every op executed, set by the cycle at the
         #: start of each cycle (``Cycle.observers``); empty outside one.
         self.observers: tuple[CycleObserver, ...] = ()
@@ -221,6 +230,9 @@ class Issuer:
         """
         ipu = self._ipu()
         assert ipu is not None
+        # The previous op's MULT product reaches this op only (see mult_product).
+        self.prior_product = self.mult_product
+        self.mult_product = None
         plan = op.plan
         self._view.plan = plan
         encoded = op.operands
@@ -245,6 +257,7 @@ class Issuer:
         self.current = facts
         observers = self.observers
         if observers:
+            self.prior_product = None  # observed ops take the general path
             return self._observed(ipu, facts, observers)
         return plan.fn(ipu, **operands)
 
@@ -270,6 +283,7 @@ class Issuer:
         """
         ipu = self._ipu()
         assert ipu is not None
+        self.mult_product = self.prior_product = None
         view = self._view
         resolve = self._resolve
         issued = []
@@ -311,6 +325,7 @@ class Issuer:
         Returns:
             The handler's return value (a ``CycleOutcome`` for BREAK, else ``None``).
         """
+        self.mult_product = self.prior_product = None
         ipu = self._ipu()
         assert ipu is not None
         self.current = facts

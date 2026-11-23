@@ -230,7 +230,7 @@ def _store_mult_res(ipu: Ipu, codec: LaneCodec, product: Lanes) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> None:
+def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> bool:
     """Apply sequential shift-and-AND mask generation, then gate mult_res.
 
     ``shift`` is interpreted as ``mask_shift_idx`` ∈ [−3, +3] (clamped).
@@ -261,7 +261,7 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> None:
         slot = (mask_idx % (LANES // 16)) * 16
         if view.read("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT:
             _count_mult_lanes(ipu, _ALL_ONES_MASK_INT, ds_value)
-            return
+            return False
 
     shape = view.ds(ds)
     facts = ipu.issuer.current
@@ -273,9 +273,10 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> None:
 
     inactive = _inactive_lanes(mask_int)
     if not inactive.size:
-        return
+        return False
     pad = np.array(mask_pad_value(shape), dtype="<f4").view("<u4")
     np.frombuffer(ipu.state.regfile.mutable("mult_res"), dtype="<u4")[inactive] = pad
+    return True
 
 
 def _count_mult_lanes(ipu: Ipu, mask_int: int, ds_value: int) -> None:
@@ -419,7 +420,10 @@ def execute_mult_rc_ve(  # noqa: PLR0913 -- one keyword per spec operand (instru
     else:
         rc = _r_cyclic_window(ipu, codec, rc_idx, nx8)
         _store_mult_res(ipu, codec, codec.mult(rc, scalar))
-    _mult_mask_and_shift(ipu, mask_offset, mask_shift, ds)
+    if not _mult_mask_and_shift(ipu, mask_offset, mask_shift, ds) and product32 is not None:
+        # MULT_RES holds exactly these lanes: an ACC in the same word may use
+        # them instead of decoding MULT_RES again (Issuer.mult_product).
+        ipu.issuer.mult_product = product32
 
 
 def execute_mult_rc_vs(

@@ -79,7 +79,15 @@ def _acc_op32(ipu: Ipu, op: str) -> bool:
     event); ``False``, having written nothing, otherwise."""
     view = ipu.view
     codec = ipu.codec
-    lanes = codec.acc_op32(op, view.read("r_acc"), view.read("mult_res"))
+    acc_raw = view.read("r_acc")
+    # The MULT of this word handed over the float32 lanes it stored in
+    # MULT_RES (Issuer.prior_product): use them when this read is the
+    # forwarded (live) MULT_RES they are; else decode MULT_RES as read.
+    product = ipu.issuer.prior_product
+    if product is not None and view.source("mult_res") is ipu.state.regfile:
+        lanes = codec.acc_op32_lanes(op, acc_raw, product)
+    else:
+        lanes = codec.acc_op32(op, acc_raw, view.read("mult_res"))
     if lanes is None:
         return False
     raw = lanes.tobytes()
