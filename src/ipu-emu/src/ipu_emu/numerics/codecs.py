@@ -112,8 +112,25 @@ class LaneCodec(Protocol):
         """The least accumulator value, the identity of :meth:`max` (-inf)."""
         ...
 
+    def decode32(
+        self, raw: Buffer, count: int = LANES, qf: Nx8Format | None = None, metadata: int = 0
+    ) -> npt.NDArray[np.float32]:
+        """:meth:`decode` as float32 (every element value is a float32)."""
+        ...
+
+    def acc_op32(self, op: str, a_raw: Buffer, b_raw: Buffer) -> npt.NDArray[np.float32] | None:
+        """See :meth:`_FloatCodec.acc_op32`."""
+        ...
+
+    def mult32(self, a: npt.NDArray[np.float32], b: object) -> npt.NDArray[np.float32] | None:
+        """See :meth:`_FloatCodec.mult32`."""
+        ...
+
 
 _NO_EVENTS: frozenset[ArithmeticEvent] = frozenset()
+_F4 = np.dtype("<f4")
+_U1 = np.dtype(np.uint8)
+_all_true = np.logical_and.reduce
 _OVERFLOW = frozenset({ArithmeticEvent.ACC_OVERFLOW})
 
 
@@ -217,6 +234,58 @@ class _FloatCodec(_Codec):
         """See :meth:`LaneCodec.acc_min`."""
         return np.float64(-np.inf)
 
+    # -- float32 short cuts --------------------------------------------------
+    #
+    # Every element value and every accumulator value is a float32. A sum,
+    # difference or product of two float32 values computed in float64 and
+    # rounded once to float32 equals the float32 operation itself (float64
+    # has more than 2*24+2 bits, so the double rounding is innocuous; a
+    # float32 product is even exact in float64). So while every result lane is
+    # finite (no NaN, no infinity, no overflow: nothing the float64 path would
+    # treat specially, and no arithmetic event), computing in float32 stores
+    # the same bytes. Any other case returns None and the caller takes the
+    # float64 path.
+
+    def acc_op32(self, op: str, a_raw: Buffer, b_raw: Buffer) -> npt.NDArray[np.float32] | None:
+        """``a op b`` (``"add"``, ``"sub"`` or ``"max"``) of two rows of accumulator
+        elements, in float32, when every lane of the result is finite; else ``None``.
+
+        When it returns lanes, they are exactly the float32 values
+        ``store_acc_events(out, acc_add/acc_sub/max(load_acc(a_raw), load_acc(b_raw)))``
+        stores, and that call reports no event. (``max`` returns one of its two
+        operands per lane, so it is exact in either width.)
+        """
+        a = np.frombuffer(a_raw, dtype=_F4, count=LANES)
+        b = np.frombuffer(b_raw, dtype=_F4, count=LANES)
+        with np.errstate(all="ignore"):
+            if op == "add":
+                result = a + b
+            elif op == "sub":
+                result = a - b
+            else:  # "max": one of the two, as max() picks it
+                result = np.where(b > a, b, a)
+        if _all_true(np.isfinite(result)):
+            return result
+        return None
+
+    def mult32(self, a: npt.NDArray[np.float32], b: object) -> npt.NDArray[np.float32] | None:
+        """``a * b`` in float32, for float32 lanes *a* and a scalar *b*, when *b*
+        is a float32 value and every product lane is finite; else ``None``.
+
+        When it returns lanes, they are exactly the float32 values
+        ``store_acc_events`` stores for ``mult(a, b)`` (with *a* as float64).
+        """
+        if not isinstance(b, (float, np.floating)) or isinstance(b, np.float16):
+            return None
+        b32 = np.float32(b)
+        if not b32 == b:  # not a float32 value (or NaN)
+            return None
+        with np.errstate(all="ignore"):
+            result = a * b32
+        if result.dtype == _F4 and _all_true(np.isfinite(result)):
+            return result
+        return None
+
 
 @functools.lru_cache(maxsize=1024)
 def nx8_table(fmt: Nx8Format, metadata: int) -> npt.NDArray[np.float64]:
@@ -229,6 +298,14 @@ def nx8_table(fmt: Nx8Format, metadata: int) -> npt.NDArray[np.float64]:
     values = [decode_element(code, fmt, scale, dynamic_exponent) for code in range(256)]
     with np.errstate(all="ignore"):
         table = np.array(values, dtype=np.float64).astype(np.float32).astype(np.float64)
+    table.flags.writeable = False
+    return table
+
+
+@functools.lru_cache(maxsize=1024)
+def nx8_table32(fmt: Nx8Format, metadata: int) -> npt.NDArray[np.float32]:
+    """:func:`nx8_table` as float32 (exact: its values are float32 values), read-only."""
+    table = nx8_table(fmt, metadata).astype(np.float32)
     table.flags.writeable = False
     return table
 
@@ -248,6 +325,14 @@ class Nx8Codec(_FloatCodec):
             raise IsaValueError("an NX8 element is decoded with a QF format")
         return nx8_table(qf, metadata)[np.frombuffer(raw, dtype=np.uint8, count=count)]
 
+    def decode32(
+        self, raw: Buffer, count: int = LANES, qf: Nx8Format | None = None, metadata: int = 0
+    ) -> npt.NDArray[np.float32]:
+        """:meth:`decode` as float32 (the table's values are float32 values)."""
+        if qf is None:
+            raise IsaValueError("an NX8 element is decoded with a QF format")
+        return nx8_table32(qf, metadata)[np.frombuffer(raw, dtype=_U1, count=count)]
+
 
 class Fp32Codec(_FloatCodec):
     """FP32 (the emulator-only debug mode): IEEE binary32 elements, widened to float64."""
@@ -257,6 +342,12 @@ class Fp32Codec(_FloatCodec):
     ) -> npt.NDArray[np.float64]:
         """See :meth:`LaneCodec.decode`: ``qf`` and ``metadata`` are ignored."""
         return self.load_acc(raw, count)
+
+    def decode32(
+        self, raw: Buffer, count: int = LANES, qf: Nx8Format | None = None, metadata: int = 0
+    ) -> npt.NDArray[np.float32]:
+        """:meth:`decode` as float32: the elements themselves (read-only view)."""
+        return np.frombuffer(raw, dtype=_F4, count=count)
 
 
 def _make(info: FormatInfo) -> LaneCodec:

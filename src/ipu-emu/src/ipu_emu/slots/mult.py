@@ -21,6 +21,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from ipu_emu.cr_contents import ds_active_count, ds_active_mask, mask_pad_value
 from ipu_emu.geometry import (
@@ -174,6 +175,42 @@ def _r_cyclic_window(ipu: Ipu, codec: LaneCodec, rc_idx: int, nx8: Nx8Format | N
         ipu, codec, vector_registers(ipu.state).r_cyclic, "r_cyclic_meta", _RING_LANES // LANES, nx8
     )
     return ring[(start + _LANE_INDEX) % _RING_LANES]
+
+
+def _decode_rows32(
+    ipu: Ipu, codec: LaneCodec, register: str, meta_register: str, rows: int, nx8: Nx8Format | None
+) -> npt.NDArray[np.float32]:
+    """:func:`_decode_rows` as float32 (the same values)."""
+    buf = ipu.view.read(register)
+    if nx8 is None:
+        return codec.decode32(buf, rows * LANES)
+    step = LANES * codec.element_bytes
+    return np.concatenate(
+        [
+            codec.decode32(buf[k * step :], LANES, nx8, _metadata(ipu, meta_register, k))
+            for k in range(rows)
+        ]
+    )
+
+
+def _r_cyclic_window32(
+    ipu: Ipu, codec: LaneCodec, rc_idx: int, nx8: Nx8Format | None
+) -> npt.NDArray[np.float32]:
+    """:func:`_r_cyclic_window` as float32 (the same values, the same reads)."""
+    start = rc_idx % _RING_LANES
+    if nx8 is None and start + LANES <= _RING_LANES:
+        buf = ipu.view.read(vector_registers(ipu.state).r_cyclic)
+        return codec.decode32(buf[start * codec.element_bytes :], LANES)
+    ring = _decode_rows32(
+        ipu, codec, vector_registers(ipu.state).r_cyclic, "r_cyclic_meta", _RING_LANES // LANES, nx8
+    )
+    return ring[(start + _LANE_INDEX) % _RING_LANES]
+
+
+def _store_mult_res32(ipu: Ipu, product: npt.NDArray[np.float32]) -> None:
+    """:func:`_store_mult_res` for float32 products (no rounding left to do)."""
+    raw = product.tobytes()
+    ipu.state.regfile.mutable("mult_res")[: len(raw)] = raw
 
 
 def _store_mult_res(ipu: Ipu, codec: LaneCodec, product: Lanes) -> None:
@@ -362,8 +399,13 @@ def execute_mult_rc_ve(  # noqa: PLR0913 -- one keyword per spec operand (instru
     codec = ipu.codec
     nx8 = _qf(ipu, qf)
     scalar = _mult_resolve_lcr_scalar(ipu, codec, src, nx8)
-    rc = _r_cyclic_window(ipu, codec, rc_idx, nx8)
-    _store_mult_res(ipu, codec, codec.mult(rc, scalar))
+    # In float32 when that stores the same bytes (LaneCodec.mult32), else in float64.
+    product32 = codec.mult32(_r_cyclic_window32(ipu, codec, rc_idx, nx8), scalar)
+    if product32 is not None:
+        _store_mult_res32(ipu, product32)
+    else:
+        rc = _r_cyclic_window(ipu, codec, rc_idx, nx8)
+        _store_mult_res(ipu, codec, codec.mult(rc, scalar))
     _mult_mask_and_shift(ipu, mask_offset, mask_shift, ds)
 
 
