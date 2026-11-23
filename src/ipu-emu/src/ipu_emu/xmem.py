@@ -19,6 +19,8 @@ from __future__ import annotations
 import weakref
 from collections.abc import Callable, Iterator
 
+from mypy_extensions import mypyc_attr
+
 from ipu_emu.errors import ConfigurationError, XMemBoundsError
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES, XMEM_BYTES
@@ -83,6 +85,7 @@ def _without(observers: tuple, fn: Callable) -> tuple:
     return observers
 
 
+@mypyc_attr(native_class=False)  # weakly referenced (_remover)
 class XMem:
     """512 MiB byte-addressable external memory, allocated a page at a time.
 
@@ -238,7 +241,7 @@ class XMem:
         self._notify("meta_read", address, METADATA_WORD_BYTES, _word_bytes(word))
         return word
 
-    def write_metadata(self, address: int, word: int) -> None:
+    def write_metadata(self, address: int, word: object) -> None:
         """Set the metadata word of the 128-byte unit at *address* (aligned).
         Observers see a ``"meta_write"`` event; the unit's bytes are untouched.
 
@@ -301,7 +304,7 @@ class XMem:
                 return False
         return True
 
-    __hash__ = None  # mutable
+    __hash__ = None  # type: ignore[assignment]  # mutable
 
     # -- convenience --------------------------------------------------------
 
@@ -357,7 +360,7 @@ class XMem:
         elif isinstance(idx, int):
             if idx < 0:
                 idx += XMEM_SIZE_BYTES
-            self.write_address(idx, bytes((val,)))
+            self.write_address(idx, bytes((val,)))  # type: ignore[arg-type]
         else:
             raise TypeError(f"XMEM indices must be int or slice, not {type(idx).__name__}")
 

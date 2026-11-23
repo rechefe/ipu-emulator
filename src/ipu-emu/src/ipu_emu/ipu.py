@@ -23,6 +23,8 @@ import weakref
 from collections.abc import Callable, Mapping
 from typing import NamedTuple
 
+from mypy_extensions import mypyc_attr
+
 from ipu_emu.errors import ConfigurationError, EmulatorError
 from ipu_emu.geometry import (
     EIGHT_BIT_ROWS,
@@ -228,7 +230,7 @@ def _read_code(operand_type: OperandType) -> int:
     domain (``LcrHalfIdx``, whose half names belong to no bank)."""
     if operand_type.domain.members == LCR_HALF_NAMES:
         return READ_LCR_HALF
-    return _READ_BY_BANKS.get(_banks(operand_type), READ_OTHER)
+    return _READ_BY_BANKS.get(_banks(operand_type), READ_OTHER)  # type: ignore[arg-type]
 
 
 # Read code of every operand type, from its domain in the operand-type registry.
@@ -329,7 +331,7 @@ def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, 
     checks = []
     for alias_id, match in aliases_for(slot_type, inst_name):
         imm_operand = imm_ne = None
-        co_field, co_opcodes = None, frozenset()
+        co_field, co_opcodes = None, frozenset()  # type: ignore[var-annotated]
         hardware_only = False
         vector_only = masked_window = False
         for constraint in match["where"]:
@@ -544,6 +546,7 @@ def _build_slot_plans():
 # ---------------------------------------------------------------------------
 
 
+@mypyc_attr(native_class=False)  # weakly referenced (weakref.proxy, Issuer)
 class Ipu:
     """IPU execution engine with automatic instruction dispatch.
 
@@ -605,7 +608,7 @@ class Ipu:
 
         See :attr:`Cycle.snapshot`.
         """
-        return self.cycle.snapshot
+        return self.cycle.snapshot  # type: ignore[return-value]
 
     @property
     def view(self) -> CycleView:

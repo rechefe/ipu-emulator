@@ -360,7 +360,7 @@ class Cycle:
     def __init__(
         self,
         state: IpuState,
-        ipu: Ipu,
+        ipu: Any,  # an Ipu or a weakref.proxy of one (Ipu passes the proxy)
         *,
         skip_idle_nops: bool | None = None,
     ) -> None:
@@ -556,8 +556,11 @@ class Cycle:
         invalid CR content raises :class:`CrContentError`; the LR writes are
         undone first, as for a fault.
         """
-        operands_of = self._ipu.issuer.operands_of
-        ipu = self._ipu
+        issuer = self._ipu.issuer
+        operands_of = issuer.operands_of
+        # The engine itself, not the weak proxy this cycle holds: a compiled
+        # handler checks that its argument is an Ipu. Issuer holds it weakly.
+        ipu = issuer._ipu()
         found = None
         for op in checks:
             try:

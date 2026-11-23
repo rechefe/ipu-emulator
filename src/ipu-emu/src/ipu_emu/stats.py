@@ -155,5 +155,5 @@ class RunStats:
             for alias_id, count in self.alias_hits.most_common():
                 lines.append(f"{alias_id + ':':<21}{count:>8}")
         if self.alias_profile is not None:
-            lines.append(self.alias_profile.format_summary())
+            lines.append(self.alias_profile.format_summary())  # type: ignore[attr-defined]
         return "\n".join(lines)
