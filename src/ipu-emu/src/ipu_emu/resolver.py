@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from ipu_emu.errors import EmulatorError
 from ipu_emu.geometry import WIDE_REGISTERS
@@ -173,9 +173,35 @@ _STEP_WORD: Final = 0
 _STEP_HALF: Final = 1
 _STEP_MULT: Final = 2
 
-#: (operand name, from the snapshot, step kind, bank read code, byte offset or
-#: mult-stage code, the LcrHalf a half step sign-extends).
-_Step = tuple[str, bool, int, int, int, "LcrHalf | None"]
+class _Step:
+    """One read of a decoded op (a native object: no tuple unpacking per read)."""
+
+    __slots__ = ("bank", "half", "kind", "name", "offset", "snap")
+
+    def __init__(
+        self, name: str, snap: bool, kind: int, bank: int, offset: int, half: LcrHalf | None
+    ) -> None:
+        self.name = name  # the operand
+        self.snap = snap  # read from the cycle's snapshot (else the live file)
+        self.kind = kind  # _STEP_WORD, _STEP_HALF or _STEP_MULT
+        self.bank = bank  # READ_LR (0) or READ_CR (1)
+        self.offset = offset  # the word's byte offset in its bank, or the mult-stage code
+        self.half = half  # the LcrHalf a half step sign-extends
+
+
+class _Steps:
+    """PackedResolver's cache entry: an encoded-operand dict, its plan and its
+    read steps (``None``: the general path). Holding the dict keeps its id
+    from being reused while the entry exists."""
+
+    __slots__ = ("encoded", "plan", "steps")
+
+    def __init__(
+        self, encoded: Mapping[str, int], plan: SlotPlan, steps: tuple[_Step, ...] | None
+    ) -> None:
+        self.encoded = encoded
+        self.plan = plan
+        self.steps = steps
 
 
 def _read_steps(plan: SlotPlan, encoded: Mapping[str, int]) -> tuple[_Step, ...] | None:
@@ -204,7 +230,7 @@ def _read_steps(plan: SlotPlan, encoded: Mapping[str, int]) -> tuple[_Step, ...]
         if code == READ_LR or code == READ_CR:
             if not 0 <= raw < _BANK_COUNT[code]:
                 return None
-            steps.append((name, snap, _STEP_WORD, code, raw * 4, None))
+            steps.append(_Step(name, snap, _STEP_WORD, code, raw * 4, None))
         elif code == READ_LCR_HALF:
             operand = _LCR_HALVES.get(raw)
             if operand is None:
@@ -212,9 +238,9 @@ def _read_steps(plan: SlotPlan, encoded: Mapping[str, int]) -> tuple[_Step, ...]
             bank = READ_LR if operand.bank == "lr" else READ_CR
             if operand.bank not in ("lr", "cr") or not 0 <= operand.index < _BANK_COUNT[bank]:
                 return None
-            steps.append((name, snap, _STEP_HALF, bank, operand.index * 4, operand))
+            steps.append(_Step(name, snap, _STEP_HALF, bank, operand.index * 4, operand))
         elif code == READ_MULT_STAGE:
-            steps.append((name, snap, _STEP_MULT, 0, raw, None))
+            steps.append(_Step(name, snap, _STEP_MULT, 0, raw, None))
         # any other read code passes the field through, as resolve() does
     return tuple(steps)
 
@@ -245,14 +271,14 @@ class PackedResolver:
         # id(encoded operands) -> (them, the plan, their read steps or None).
         # The encoded dict is the word's schedule's own (never mutated); the
         # entry holds it, so its id is not reused while the entry exists.
-        self._steps: dict[int, tuple[Mapping[str, int], SlotPlan, tuple[_Step, ...] | None]] = {}
-        # The views of the last snapshot and the last live file resolve() read
-        # (those of _views(), which the files are held by): the same two files
-        # are read cycle after cycle.
+        self._steps: dict[int, _Steps] = {}
+        # The (LR, CR) bank views of the last snapshot and the last live file
+        # resolve() read (those of _views(), which the files are held by): the
+        # same two files are read cycle after cycle.
         self._snap: RegFile | None = None
-        self._snap_views: dict[int, memoryview] = {}
+        self._snap_views: tuple[memoryview, memoryview] | None = None
         self._live: RegFile | None = None
-        self._live_views: dict[int, memoryview] = {}
+        self._live_views: tuple[memoryview, memoryview] | None = None
 
     def _views(self, source: RegFile) -> dict[int, memoryview]:
         entry = self._banks.get(id(source))
@@ -276,12 +302,12 @@ class PackedResolver:
         steps cannot serve takes :meth:`_resolve_general`, the same result.
         """
         entry = self._steps.get(id(encoded))
-        if entry is None or entry[0] is not encoded or entry[1] is not plan:
+        if entry is None or entry.encoded is not encoded or entry.plan is not plan:
             if len(self._steps) >= 1 << 16:
                 self._steps.clear()
-            entry = (encoded, plan, _read_steps(plan, encoded))
+            entry = _Steps(encoded, plan, _read_steps(plan, encoded))
             self._steps[id(encoded)] = entry
-        steps = entry[2]
+        steps = entry.steps
         if steps is None:
             return self._resolve_general(plan, encoded, snapshot)
         operands: dict[str, Any] = dict(encoded)
@@ -289,36 +315,32 @@ class PackedResolver:
             return operands
         state = self._state
         live = state.regfile
-        views_snap: dict[int, memoryview] | None = None
-        views_live: dict[int, memoryview] | None = None
-        for name, snap, kind, bank, offset, half in steps:
+        for step in steps:
+            kind = step.kind
             if kind == _STEP_MULT:
-                operands[name] = resolve_mult_stage(
-                    offset, snapshot if snap else live, state.codec.element_bytes != 1
+                operands[step.name] = resolve_mult_stage(
+                    step.offset, snapshot if step.snap else live, state.codec.element_bytes != 1
                 )
                 continue
-            if snap:
-                if views_snap is None:
-                    if snapshot is self._snap:
-                        views_snap = self._snap_views
-                    else:
-                        views_snap = self._views(snapshot)
-                        self._snap, self._snap_views = snapshot, views_snap
-                views = views_snap
+            if step.snap:
+                views = self._snap_views
+                if views is None or snapshot is not self._snap:
+                    banks = self._views(snapshot)
+                    views = (banks[READ_LR], banks[READ_CR])
+                    self._snap, self._snap_views = snapshot, views
             else:
-                if views_live is None:
-                    if live is self._live:
-                        views_live = self._live_views
-                    else:
-                        views_live = self._views(live)
-                        self._live, self._live_views = live, views_live
-                views = views_live
-            word: int = _WORD(views[bank], offset)[0]
+                views = self._live_views
+                if views is None or live is not self._live:
+                    banks = self._views(live)
+                    views = (banks[READ_LR], banks[READ_CR])
+                    self._live, self._live_views = live, views
+            value: object = _WORD(views[step.bank], step.offset)[0]
             if kind == _STEP_WORD:
-                operands[name] = word
+                operands[step.name] = value
             else:
+                half = step.half
                 assert half is not None
-                operands[name] = lcr_half_value(half, word)
+                operands[step.name] = lcr_half_value(half, cast(int, value))
         return operands
 
     def _resolve_general(
