@@ -17,7 +17,6 @@ handlers read the identity verdict for their lane counts and their lane mask.
 
 from __future__ import annotations
 
-import weakref
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, NamedTuple
@@ -115,7 +114,9 @@ class Issuer:
     __slots__ = ("_ipu", "_resolve", "_view", "current", "mult_product", "observers", "prior_product")
 
     def __init__(self, ipu: Ipu, resolver: OperandResolver) -> None:
-        self._ipu = weakref.ref(ipu)
+        # The engine, held until close() (Ipu.close): an engine and its
+        # issuer refer to each other.
+        self._ipu: Ipu | None = ipu
         self._resolve = resolver.resolve
         # The engine's view, which it creates first and never replaces: held
         # so each op sets its plan and reads the snapshot without two
@@ -146,7 +147,7 @@ class Issuer:
         Returns:
             The op's fact record, for :meth:`execute`.
         """
-        ipu = self._ipu()
+        ipu = self._ipu
         assert ipu is not None
         plan = op.plan
         self._view.plan = plan
@@ -206,7 +207,7 @@ class Issuer:
         """*op*'s operands as its handler would get them now, with nothing
         issued: no counter, no observer (the precise-fault check, E04-20).
         Also points the cycle view at *op*'s plan, as issuing does."""
-        ipu = self._ipu()
+        ipu = self._ipu
         assert ipu is not None
         plan = op.plan
         self._view.plan = plan
@@ -228,7 +229,7 @@ class Issuer:
         Returns:
             The handler's return value.
         """
-        ipu = self._ipu()
+        ipu = self._ipu
         assert ipu is not None
         # The previous op's MULT product reaches this op only (see mult_product).
         self.prior_product = self.mult_product
@@ -281,7 +282,7 @@ class Issuer:
             ops: The ops, in execution order.
             inst: The whole word.
         """
-        ipu = self._ipu()
+        ipu = self._ipu
         assert ipu is not None
         self.mult_product = self.prior_product = None
         view = self._view
@@ -326,13 +327,21 @@ class Issuer:
             The handler's return value (a ``CycleOutcome`` for BREAK, else ``None``).
         """
         self.mult_product = self.prior_product = None
-        ipu = self._ipu()
+        ipu = self._ipu
         assert ipu is not None
         self.current = facts
         self._view.plan = facts.plan
         if self.observers:
             return self._observed(ipu, facts, self.observers)
         return facts.plan.fn(ipu, **facts.operands)
+
+    def close(self) -> None:
+        """Let go of the engine (see ``Ipu.close``) and the op records: a
+        closed issuer cannot dispatch another op."""
+        self._ipu = None
+        self.current = None
+        self.observers = ()
+        self.mult_product = self.prior_product = None
 
 
 _FIRST_HARDWARE_ONLY: dict[int, tuple[SlotPlan, _AliasCheck | None]] = {}

@@ -41,12 +41,9 @@ declaration says (E04-12).
 
 from __future__ import annotations
 
-import weakref
 from collections.abc import Callable, Mapping
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
-
-from mypy_extensions import mypyc_attr
 
 from ipu_emu.errors import (
     CrContentError,
@@ -328,18 +325,15 @@ def _schedule_dropper(
     return drop
 
 
-def _observer_remover(ref: weakref.ref[Cycle], observer: CycleObserver) -> Callable[[], None]:
-    """A function that detaches *observer* from the cycle *ref* points to."""
+def _observer_remover(cycle: Cycle, observer: CycleObserver) -> Callable[[], None]:
+    """A function that detaches *observer* from *cycle*."""
 
     def remove() -> None:
-        cycle = ref()
-        if cycle is not None:
-            cycle._observers = tuple(o for o in cycle._observers if o is not observer)
+        cycle._observers = tuple(o for o in cycle._observers if o is not observer)
 
     return remove
 
 
-@mypyc_attr(native_class=False)  # weakly referenced (weakref.finalize, AliasObserver)
 class Cycle:
     """Executes the instruction word at the PC, one cycle per call.
 
@@ -348,8 +342,8 @@ class Cycle:
 
     Args:
         state: The machine state the cycle reads and writes.
-        ipu: The handlers and slot dispatch the cycle drives. Held as given:
-            ``Ipu`` passes a weak proxy of itself, so it is not a reference cycle.
+        ipu: The handlers and slot dispatch the cycle drives, held until
+            :meth:`close` (``Ipu.close`` closes the cycle it built).
         skip_idle_nops: Build schedules that skip idle NOP slots. Defaults to
             ``state.prototyping``: this flag and the operand resolver are
             prototyping's part in the cycle (two handlers have shortcuts of
@@ -360,7 +354,7 @@ class Cycle:
     def __init__(
         self,
         state: IpuState,
-        ipu: Any,  # an Ipu or a weakref.proxy of one (Ipu passes the proxy)
+        ipu: Any,  # an Ipu (typed Any: the dispatch goes through its attributes)
         *,
         skip_idle_nops: bool | None = None,
     ) -> None:
@@ -376,11 +370,9 @@ class Cycle:
         # is written, and the IMEM write observer drops it then.
         self._schedules: dict[int, tuple[Mapping[str, int] | None, Schedule | None]] = {}
         schedules = self._schedules
-        remove = state.inst_mem.add_write_observer(_schedule_dropper(schedules))
-        # The observer holds the dict, not the cycle; it is removed when the
-        # cycle is collected, so a state outliving many engines does not
-        # collect dead observers.
-        weakref.finalize(self, remove)
+        # The observer holds the dict, not the cycle; close() removes it, so a
+        # state outliving many engines does not collect dead observers.
+        self._forget_imem = state.inst_mem.add_write_observer(_schedule_dropper(schedules))
         # The snapshot buffer is reused across cycles: every register is
         # refreshed from the live file at cycle start, so it holds exactly what
         # a fresh copy would. ``_source`` is the file it copies.
@@ -403,7 +395,19 @@ class Cycle:
             A function that detaches it; calling it twice is harmless.
         """
         self._observers = self._observers + (observer,)
-        return _observer_remover(weakref.ref(self), observer)
+        return _observer_remover(self, observer)
+
+    def close(self) -> None:
+        """Release what this cycle holds: its IMEM write observer, its engine
+        and its observers (each may refer back to it). Calling it again does
+        nothing; a closed cycle cannot run another word.
+
+        An engine and its cycle refer to each other, so without ``close`` they
+        (and the state they hold) wait for the cyclic garbage collector.
+        """
+        self._forget_imem()
+        self._ipu = None
+        self._observers = ()
 
     @property
     def observers(self) -> tuple[CycleObserver, ...]:
@@ -556,11 +560,8 @@ class Cycle:
         invalid CR content raises :class:`CrContentError`; the LR writes are
         undone first, as for a fault.
         """
-        issuer = self._ipu.issuer
-        operands_of = issuer.operands_of
-        # The engine itself, not the weak proxy this cycle holds: a compiled
-        # handler checks that its argument is an Ipu. Issuer holds it weakly.
-        ipu = issuer._ipu()
+        ipu = self._ipu
+        operands_of = ipu.issuer.operands_of
         found = None
         for op in checks:
             try:

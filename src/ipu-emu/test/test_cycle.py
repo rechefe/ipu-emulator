@@ -277,19 +277,41 @@ def test_imem_write_observers_are_called_and_removed():
     assert seen == [3, len(state.inst_mem) - 1]
 
 
-def test_imem_does_not_keep_a_cycle_alive():
+def test_closing_a_cycle_removes_its_imem_observer():
+    """A cycle holds IMEM's write observer (its schedule cache) until it is
+    closed (the engine is compiled: no weak references to it); then the state
+    keeps nothing of it, and a second close does nothing."""
+    state = make_state("SET LR0 CR8 ;;", cr={8: 4})
+    ipu = Ipu(state)
+    before = len(state.inst_mem._observers)
+    cycle = Cycle(state, ipu)
+    assert len(state.inst_mem._observers) == before + 1
+    cycle.step()
+    cycle.close()
+    cycle.close()
+    assert len(state.inst_mem._observers) == before
+    state.inst_mem[0] = None  # the closed cycle's observer is gone, not called
+    ipu.close()
+    assert len(state.inst_mem._observers) == before - 1
+
+
+def test_a_closed_engine_is_freed_without_the_cycle_collector():
+    """Engine, issuer and cycle refer to each other; Ipu.close breaks that,
+    so dropping a closed engine frees its state (and XMEM) at once."""
     import gc
     import weakref
 
     state = make_state("SET LR0 CR8 ;;", cr={8: 4})
     ipu = Ipu(state)
-    cycle = Cycle(state, ipu)
-    cycle.step()
-    ref = weakref.ref(cycle)
-    del cycle
-    gc.collect()
-    assert ref() is None
-    state.inst_mem[0] = None  # the dead cycle's observer is gone, not called
+    ipu.cycle.step()
+    xmem = weakref.ref(state.xmem)
+    ipu.close()
+    gc.disable()
+    try:
+        del ipu, state
+        assert xmem() is None
+    finally:
+        gc.enable()
 
 
 def test_a_debugger_word_written_at_a_break_is_retired():

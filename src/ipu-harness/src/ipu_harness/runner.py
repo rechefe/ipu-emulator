@@ -675,65 +675,71 @@ def run_kernel(
         ran = _run_program(manifest, case, fmt, options, cache, shared)
     else:
         ran = _run_staged_kernel(manifest, case, fmt, options, cache, shared)
-    plan, inputs, placement, model, run = ran.plan, ran.inputs, ran.placement, ran.model, ran.run
-    tensors = plan.manifest.tensors
-    if run is None:  # the user quit the debugger: no result
+    try:
+        plan, inputs, placement, model, run = ran.plan, ran.inputs, ran.placement, ran.model, ran.run
+        tensors = plan.manifest.tensors
+        if run is None:  # the user quit the debugger: no result
+            return RunResult(
+                kernel=manifest.name,
+                case=case.name,
+                format=fmt,
+                cycles=ran.cycles,
+                mac_utilization=ran.mac_utilization,
+                outputs=MappingProxyType({}),
+                raw_outputs=MappingProxyType({}),
+                comparisons=(),
+                fault=None,
+                alias_profile=ran.profile,
+                quit=True,
+                halted=False,
+                stages=ran.stages,
+                placement=placement,
+                stats=ran.stats,
+            )
+
+        regions = {
+            t.name: read_region(model, plan, placement, t)
+            for t in tensors.values()
+            if t.role == "output"
+        }
+        raw = {name: data.data for name, data in regions.items()}
+        outputs = {
+            name: unpack(tensors[name], data.data, plan, data.metadata)
+            for name, data in regions.items()
+        }
+        if options.output_dir is not None:
+            options.output_dir.mkdir(parents=True, exist_ok=True)
+            for name, values in outputs.items():
+                np.save(options.output_dir / f"{name}.npy", values)
+
+        fault = None
+        comparisons: tuple[Comparison, ...] = ()
+        if run.status.state is RunState.FAULTED:
+            assert run.status.fault is not None  # a faulted status names its fault
+            fault = RunFault(run.status.fault, run.status.pc, _source_line(ran.rendered, run.status.pc))
+        elif shared is None or shared.check:
+            golden = _goldens(case, plan, inputs)
+            comparisons = tuple(
+                _compared(name, outputs[name], want, plan) for name, want in golden.items()
+            )
         return RunResult(
             kernel=manifest.name,
             case=case.name,
             format=fmt,
             cycles=ran.cycles,
             mac_utilization=ran.mac_utilization,
-            outputs=MappingProxyType({}),
-            raw_outputs=MappingProxyType({}),
-            comparisons=(),
-            fault=None,
+            outputs=MappingProxyType(outputs),
+            raw_outputs=MappingProxyType(raw),
+            comparisons=comparisons,
+            fault=fault,
             alias_profile=ran.profile,
-            quit=True,
-            halted=False,
+            halted=run.status.state is RunState.HALTED,
             stages=ran.stages,
             placement=placement,
             stats=ran.stats,
         )
-
-    regions = {
-        t.name: read_region(model, plan, placement, t)
-        for t in tensors.values()
-        if t.role == "output"
-    }
-    raw = {name: data.data for name, data in regions.items()}
-    outputs = {
-        name: unpack(tensors[name], data.data, plan, data.metadata)
-        for name, data in regions.items()
-    }
-    if options.output_dir is not None:
-        options.output_dir.mkdir(parents=True, exist_ok=True)
-        for name, values in outputs.items():
-            np.save(options.output_dir / f"{name}.npy", values)
-
-    fault = None
-    comparisons: tuple[Comparison, ...] = ()
-    if run.status.state is RunState.FAULTED:
-        assert run.status.fault is not None  # a faulted status names its fault
-        fault = RunFault(run.status.fault, run.status.pc, _source_line(ran.rendered, run.status.pc))
-    elif shared is None or shared.check:
-        golden = _goldens(case, plan, inputs)
-        comparisons = tuple(
-            _compared(name, outputs[name], want, plan) for name, want in golden.items()
-        )
-    return RunResult(
-        kernel=manifest.name,
-        case=case.name,
-        format=fmt,
-        cycles=ran.cycles,
-        mac_utilization=ran.mac_utilization,
-        outputs=MappingProxyType(outputs),
-        raw_outputs=MappingProxyType(raw),
-        comparisons=comparisons,
-        fault=fault,
-        alias_profile=ran.profile,
-        halted=run.status.state is RunState.HALTED,
-        stages=ran.stages,
-        placement=placement,
-        stats=ran.stats,
-    )
+    finally:
+        if shared is None:
+            # The model is this run's own: release its engine (2.1.0), so it
+            # and its XMEM are freed now, not by the cyclic collector.
+            ran.model.close()

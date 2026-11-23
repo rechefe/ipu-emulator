@@ -19,11 +19,8 @@ spec's operand names.
 from __future__ import annotations
 
 import inspect
-import weakref
 from collections.abc import Callable, Mapping
 from typing import NamedTuple
-
-from mypy_extensions import mypyc_attr
 
 from ipu_emu.errors import ConfigurationError, EmulatorError
 from ipu_emu.geometry import (
@@ -546,7 +543,6 @@ def _build_slot_plans():
 # ---------------------------------------------------------------------------
 
 
-@mypyc_attr(native_class=False)  # weakly referenced (weakref.proxy, Issuer)
 class Ipu:
     """IPU execution engine with automatic instruction dispatch.
 
@@ -590,17 +586,23 @@ class Ipu:
         # the cycle module picks for this state (packed when prototyping).
         self.issuer = Issuer(self, resolver_for(state))
         # One VLIW word's sequencing: snapshot, slot order, idle words, the LR
-        # conflict check and the observers' hooks. The cycle gets a
-        # weak proxy: a strong back-reference would make every engine a
-        # reference cycle, keeping its state's XMEM alive until the cyclic
-        # garbage collector happens to run.
-        # So ``cycle`` works only while this Ipu is alive: hold the Ipu, or
-        # build a Cycle of your own (``Cycle(state, ipu)``).
-        self.cycle = Cycle(state, weakref.proxy(self))
+        # conflict check and the observers' hooks. The issuer and the cycle
+        # hold this engine, which holds them: close() breaks those references,
+        # so a closed engine (and its state's XMEM) is freed on release
+        # instead of waiting for the cyclic garbage collector.
+        self.cycle = Cycle(state, self)
         if bridge is not None:
             # The profiler observes this engine's cycles, and reads the snapshot
             # through this cycle (Cycle.snapshot).
             self.cycle.add_observer(bridge.observing(self.cycle))
+
+    def close(self) -> None:
+        """Release this engine: its cycle (and the IMEM write observer it
+        holds) and its issuer let go of it, so dropping the engine frees it
+        without the cyclic garbage collector. Calling it again does nothing;
+        a closed engine cannot run another word."""
+        self.cycle.close()
+        self.issuer.close()
 
     @property
     def snapshot(self) -> RegFile | None:

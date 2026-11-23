@@ -69,7 +69,7 @@ __all__ = [
 ]
 
 #: The version of this API (Q11).
-API_VERSION = "2.0.0"
+API_VERSION = "2.1.0"
 
 
 class RunState(str, enum.Enum):
@@ -166,6 +166,22 @@ class ReferenceModel:
         self._ipu = _Ipu(self._state)
         self._collector = _CommitCollector(self._state)
         self._started = False
+        self._closed = False
+
+    def close(self) -> None:
+        """Release the model's engine and its commit recording (2.1.0).
+
+        The engine and the recording refer back to the model's state, so a
+        model is freed on release only once closed (else it waits for the
+        cyclic garbage collector). Its registers and memory can still be read
+        and written; :meth:`step`, :meth:`run` and :meth:`debug_run` raise
+        ``ConfigurationError``. Calling it again does nothing.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        self._collector.close()
+        self._ipu.close()
 
     # -- setup ---------------------------------------------------------------
 
@@ -538,6 +554,7 @@ class ReferenceModel:
             old.detach()  # the replaced profile stops watching this model
         self._state.alias_profile = profile
         self._state.stats.alias_profile = profile
+        self._ipu.close()  # the replaced engine is not used again
         self._ipu = _Ipu(self._state)  # the engine binds the profile's observer when built
 
     def alias_profile(self) -> AliasProfile | None:
@@ -632,7 +649,8 @@ class ReferenceModel:
 
     def _new_collector(self) -> None:
         self._collector.close()
-        self._collector = _CommitCollector(self._state)
+        if not self._closed:  # a closed model records nothing again
+            self._collector = _CommitCollector(self._state)
 
     def _flush(self, trace: TraceWriter | None, numbering: Iterator[int]) -> None:
         records = self._collector.take()
@@ -666,6 +684,8 @@ class ReferenceModel:
             )
 
     def _steppable(self) -> None:
+        if self._closed:
+            raise ConfigurationError("the model is closed")
         status = self.status
         if status.state is RunState.FAULTED:
             fault = status.fault.label if status.fault is not None else "?"
