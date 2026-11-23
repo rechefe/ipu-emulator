@@ -16,6 +16,7 @@ with these handlers' own operand resolution.
 
 from __future__ import annotations
 
+import struct
 from collections.abc import Mapping
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Final
@@ -113,6 +114,7 @@ def _active_lane_count(mask_int: int, ds_active: int) -> int:
 
 #: Bytes of one row-metadata word in ``r_meta`` / ``r_cyclic_meta``.
 _META_BYTES: Final = 2
+_F32_VALUE: Final = struct.Struct("<f").unpack_from
 
 
 def _qf(ipu: Ipu, qf: int) -> Nx8Format | None:
@@ -382,6 +384,8 @@ def _mult_resolve_lcr_scalar(
         buf = view.read(vector_registers(ipu.state).ra)
         if nx8 is None:
             k = view.lr(src, via) % _RA_LANES
+            if codec.element_bytes == 4:  # FP32: the element's value, as decode() widens it
+                return _F32_VALUE(buf, k * 4)[0]
             return codec.decode(buf[k * codec.element_bytes :], 1)[0]
         metadata = (_metadata(ipu, "r_meta", 0), _metadata(ipu, "r_meta", 1))
         k = view.lr(src, via) % _RA_LANES

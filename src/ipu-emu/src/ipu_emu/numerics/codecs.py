@@ -25,6 +25,7 @@ and signalling-NaN conversion behave like ``struct`` whatever that policy is.
 from __future__ import annotations
 
 import functools
+import math
 import struct
 from typing import Final, Protocol
 
@@ -131,6 +132,13 @@ _NO_EVENTS: Final[frozenset[ArithmeticEvent]] = frozenset()
 _F4: Final = np.dtype("<f4")
 _U1: Final = np.dtype(np.uint8)
 _all_true: Final = np.logical_and.reduce
+_sum: Final = np.add.reduce
+_F32_BYTES: Final = struct.Struct("<f")
+
+
+def _as_float32(value: float) -> float:
+    """*value* rounded to float32 (as a Python float); ``OverflowError`` beyond its range."""
+    return _F32_BYTES.unpack(_F32_BYTES.pack(value))[0]
 _LANES: Final = LANES
 _OVERFLOW: Final = frozenset({ArithmeticEvent.ACC_OVERFLOW})
 
@@ -265,7 +273,11 @@ class _FloatCodec(_Codec):
                 result = a - b
             else:  # "max": one of the two, as max() picks it
                 result = np.where(b > a, b, a)
-        if _all_true(np.isfinite(result)):
+            # The sum is finite only if every lane is (a NaN or an infinity
+            # makes it NaN or infinite); a finite sum that overflows just
+            # sends the row to the float64 path.
+            finite = math.isfinite(_sum(result))
+        if finite:
             return result
         return None
 
@@ -276,14 +288,20 @@ class _FloatCodec(_Codec):
         When it returns lanes, they are exactly the float32 values
         ``store_acc_events`` stores for ``mult(a, b)`` (with *a* as float64).
         """
-        if not isinstance(b, (float, np.floating)) or isinstance(b, np.float16):
+        if isinstance(b, (float, np.float32)):  # np.float64 is a float
+            value = float(b)  # exact for both
+        else:
             return None
-        b32 = np.float32(b)
-        if not b32 == b:  # not a float32 value (or NaN)
+        try:
+            if _as_float32(value) != value:  # not a float32 value (or NaN)
+                return None
+        except OverflowError:  # beyond float32's range
             return None
         with np.errstate(all="ignore"):
-            result = a * b32
-        if result.dtype == _F4 and _all_true(np.isfinite(result)):
+            # A Python float takes the array's dtype (NEP 50): a float32 product.
+            result = a * value
+            finite = math.isfinite(_sum(result))  # as in acc_op32
+        if finite and result.dtype == _F4:
             return result
         return None
 
