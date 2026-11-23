@@ -136,7 +136,7 @@ class CycleView:
     def half(self, code: int, via: str) -> int:
         """The 16-bit CR half a ``HalfCrIdx`` operand *code* names, read as
         :meth:`cr` reads the CR (ADR 0007)."""
-        return half_of(code, self.cr(code >> 1, via))
+        return half_of(code, self.source("cr", via).get_cr(code >> 1))  # self.cr, inlined
 
     def ds(self, code: int, via: str = "ds") -> DataStructure:
         """The DS the half-CR operand *code* (``via``) holds.

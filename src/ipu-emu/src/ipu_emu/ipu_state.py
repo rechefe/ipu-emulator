@@ -177,6 +177,9 @@ class IpuState:
         checked = _check_format(fmt)
         self._fmt = checked
         self._codec = codec_for(checked)
+        # codec.element_bytes, kept beside it for the hot mode tests
+        # (geometry._is_wide, xmem_element_width_bytes): one attribute read.
+        self._element_bytes: int = self._codec.element_bytes
 
     @property
     def fmt(self) -> ElementFormat:

@@ -143,7 +143,7 @@ def is_wide_format(fmt: ElementFormat) -> bool:
 
 def _is_wide(state: IpuState) -> bool:
     """*state* runs in the 4-byte element format (FP32, emulator-only)."""
-    return state.codec.element_bytes != _EIGHT_BIT_ELEMENT_BYTES
+    return state._element_bytes != _EIGHT_BIT_ELEMENT_BYTES
 
 
 def fp32_mode(state: IpuState) -> bool:
@@ -191,7 +191,7 @@ def row_size_bytes(fmt: ElementFormat) -> int:
 
 def xmem_element_width_bytes(state: IpuState) -> int:
     """:func:`element_width_bytes` of *state*'s format, from its codec (the hot path)."""
-    return state.codec.element_bytes
+    return state._element_bytes
 
 
 def xmem_row_size_bytes(state: IpuState) -> int:
