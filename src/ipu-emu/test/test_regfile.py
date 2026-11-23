@@ -667,3 +667,15 @@ class TestReadAndWriteViews:
         assert rf.view("r")[0] == 7
         rf.mark_constant_ones("r", 0, 128)
         assert not rf.has_constant_ones("r", 0, 128), "an escaped buffer is never trusted again"
+
+
+def test_a_custom_schema_warns_and_works_through_the_generic_methods():
+    """A compiled RegFile has no per-instance attributes: a custom schema's own
+    named accessors are not attached, and constructing one says so and names
+    the generic methods, which work."""
+    with pytest.warns(UserWarning, match="get_scalar, set_scalar"):
+        rf = RegFile(list(REGFILE_SCHEMA))
+    rf.set_scalar("lr", 3, 0x1234)
+    assert rf.get_scalar("lr", 3) == 0x1234
+    rf.set_register_bytes("r", 1, bytes(range(128)))
+    assert rf.get_register_bytes("r", 1) == bytearray(range(128))

@@ -426,7 +426,8 @@ class Cycle:
         if self._buffer is None:
             return None
         if self._public_snapshot is None:
-            self._public_snapshot = self._buffer.snapshot()
+            buffer: Any = self._buffer  # looked up, not a compiled call: patchable
+            self._public_snapshot = buffer.snapshot()
         return self._public_snapshot
 
     @property
@@ -621,7 +622,8 @@ class Cycle:
         if regfile is not self._source or self._buffer is None:
             # First cycle, after reset, or the state swapped in another
             # register file: take a real copy of this one and reuse it.
-            self._buffer = regfile.snapshot()
+            source: Any = regfile  # looked up, not a compiled call: patchable
+            self._buffer = source.snapshot()
             self._source = regfile
             self._ipu.bind_snapshot(self._buffer)
         else:

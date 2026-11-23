@@ -1,37 +1,21 @@
-"""IPU register file — fully generated from the descriptor schema.
+"""IPU register file, laid out by the descriptor schema.
 
-Every named accessor (``get_lr``, ``set_r_acc_bytes``, ``get_r_cyclic_at``, …)
-is generated at init-time from ``REGFILE_SCHEMA`` — no hand-coded per-register
-methods exist.  The generation rules are driven by four descriptor criteria:
-
-1. **is_vector** (``desc.is_vector``):
-   ``False`` → scalar integer register (LR, CR).
-   ``True``  → byte-blob register (R, R_ACC, …).
-
-2. **cyclic** (``desc.cyclic``):
-   Generates wrapping ``get_{name}_at`` / ``set_{name}_at`` accessors.
-
-3. **size_bytes** (``desc.size_bytes``):
-   Width of each element in bytes (same concept whether scalar or vector).
-
-4. **word_view** (``desc.word_view``):
-   Adds uint32 word-level accessors and uses a ``_bytes`` suffix for
-   the byte-blob accessor to disambiguate.
-
-Additionally, ``desc.count`` determines whether the byte-blob accessor
-takes an index argument (multi-element) or not (single-element).
+The named accessors (``get_lr``, ``set_r_acc_bytes``, ``get_r_cyclic_at``, ...)
+are generated from ``REGFILE_SCHEMA`` (see "Dynamic Accessor Generation"
+below for the rules) and attached to the class once; the few the emulator's
+hot path calls (``get_lr``, ``get_cr``, ...) are compiled methods of the class
+that do exactly what the generated ones do. Every register lives in one buffer
+(``ipu_emu.register_buffer``).
 """
 
 from __future__ import annotations
 
 import struct
 import warnings
-import weakref
 from collections.abc import Callable
 from typing import Any, Final, Protocol
 
 import numpy as np
-from mypy_extensions import mypyc_attr
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegKind
 from ipu_emu.register_buffer import layout_of, slices, write
@@ -73,6 +57,10 @@ def _check_scalar(name: str, desc: RegDescriptor) -> None:
 #: ``fn(name, start, size)``: register *name* bytes ``[start, start+size)`` may change.
 RegisterObserver = Callable[[str, int, int], None]
 _memoryview: Final = memoryview  # a module constant: no builtins lookup per call
+_CUSTOM_SCHEMA: Final = (
+    "a RegFile with a custom schema has no named accessors of its own (get_<register>, ...): "
+    "use get_scalar, set_scalar, get_register_bytes, set_register_bytes, view and mutable"
+)
 
 
 class RegFileReader(Protocol):
@@ -90,15 +78,12 @@ class RegFileReader(Protocol):
     def get_cr(self, index: int) -> int: ...
 
 
-def _remover(owner, fn: Callable) -> Callable[[], None]:
-    """A function that detaches *fn* from *owner*. It holds *owner* weakly, so
-    an observer that keeps its remover does not form a reference cycle."""
-    ref = weakref.ref(owner)
+def _remover(owner: RegFile, fn: Callable) -> Callable[[], None]:
+    """A function that detaches *fn* from *owner* (held until it is called:
+    an observer that keeps its remover detaches before it is dropped)."""
 
     def remove() -> None:
-        target = ref()
-        if target is not None:
-            target._observers = _without(target._observers, fn)
+        owner._observers = _without(owner._observers, fn)
 
     return remove
 
@@ -111,7 +96,6 @@ def _without(observers: tuple, fn: Callable) -> tuple:
     return observers
 
 
-@mypyc_attr(native_class=False)  # accessors are attached with setattr below
 class RegFile:
     """Register file whose layout is defined by ``REGFILE_SCHEMA``.
 
@@ -122,15 +106,48 @@ class RegFile:
     ``word_view=True`` additionally expose a NumPy uint32 view.
     """
 
-    # The generated accessors the hot modules call, declared for the type
-    # checker (attached at run time by _attach_default_accessors_to_class).
-    get_lr: Callable[[int], int]
-    set_lr: Callable[[int, int], None]
-    get_cr: Callable[[int], int]
-    set_cr: Callable[[int, int], None]
-    get_r_mask: Callable[[], bytearray]
-    set_r_mask: Callable[[bytes | bytearray], None]
-    set_r_acc_word: Callable[[int, int], None]
+    # The default schema's accessors the hot modules call, as compiled methods.
+    # Each does what the accessor _create_accessor_methods generates for it
+    # does (the others are attached by _attach_default_accessors_to_class).
+
+    def get_lr(self, index: int) -> int:
+        if type(index) is int and 0 <= index < _LR_COUNT:
+            return _UNPACK_WORD(self._storage["lr"], index * 4)[0]
+        return self.get_scalar("lr", index)
+
+    def get_cr(self, index: int) -> int:
+        if type(index) is int and 0 <= index < _CR_COUNT:
+            return _UNPACK_WORD(self._storage["cr"], index * 4)[0]
+        return self.get_scalar("cr", index)
+
+    def set_lr(self, index: int, value: int) -> None:
+        if type(index) is int and type(value) is int and 0 <= index < _LR_COUNT:
+            self._set_word("lr", index * 4, value)
+            return
+        self.set_scalar("lr", index, value)
+
+    def set_cr(self, index: int, value: int) -> None:
+        plain = type(index) is int and type(value) is int
+        if plain and 0 <= index < _CR_COUNT and index not in CR_READ_ONLY_INITIAL_VALUES:
+            self._set_word("cr", index * 4, value)
+            return
+        self.set_scalar("cr", index, value)
+
+    def _set_word(self, name: str, offset: int, value: int) -> None:
+        observers = self._observers
+        if observers:
+            for observer in observers:
+                observer(name, offset, 4)
+        _PACK_WORD(self._storage[name], offset, value & LR_CR_SCALAR_VALUE_MASK)
+
+    def get_r_mask(self) -> bytearray:
+        return _GENERATED["get_r_mask"](self)
+
+    def set_r_mask(self, data: bytes | bytearray) -> None:
+        _GENERATED["set_r_mask"](self, data)
+
+    def set_r_acc_word(self, index: int, value: int) -> None:
+        _GENERATED["set_r_acc_word"](self, index, value)
 
     def __init__(self, schema: list[RegDescriptor] | None = None) -> None:
         self._schema = schema or REGFILE_SCHEMA
@@ -156,10 +173,9 @@ class RegFile:
         # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods).
         # The default schema attaches them to the class once; only a custom
         # schema pays for per-instance generation.
-        if self._schema is REGFILE_SCHEMA:
-            _attach_default_accessors_to_class()
-        else:
-            _attach_dynamic_accessors(self)
+        _attach_default_accessors_to_class()
+        if self._schema is not REGFILE_SCHEMA:  # (no per-instance attributes when compiled)
+            warnings.warn(_CUSTOM_SCHEMA, UserWarning, stacklevel=2)
 
         for index, value in CR_READ_ONLY_INITIAL_VALUES.items():
             self.set_scalar(
@@ -383,7 +399,7 @@ class RegFile:
         per-instance bound accessors (73% of total emulator runtime) to produce
         a register file that differs only in its bytes.
         """
-        new = object.__new__(type(self))
+        new = RegFile()  # then made a copy of this one, field by field
         new._schema = self._schema
         new._descriptors = self._descriptors
         new._alias_map = self._alias_map
@@ -393,10 +409,6 @@ class RegFile:
         new._layout = self._layout
         new._buffer = bytearray(self._buffer)
         new._storage = slices(new._buffer, self._layout)
-        if self._schema is not REGFILE_SCHEMA:
-            # A custom schema keeps its accessors on the instance, so the copy
-            # needs its own bound set (the default schema's live on the class).
-            _attach_dynamic_accessors(new)
         return new
 
     def copy_into(self, other: RegFile) -> None:
@@ -637,17 +649,10 @@ def _add_indexed_vector_accessors(methods: dict, name: str, count: int, elem_siz
 def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     """Generate wrapping get/set accessors for a cyclic register.
 
-    ``RegFile`` has no concept of "mode", and since #180 it needs none: the two
-    cyclic rings are separate registers -- ``r_cyclic`` (512 B, 1 B/element) and
-    ``r_cyclic_wide_debug`` (2048 B, 4 B/element) -- so each wraps at its own
-    allocation. Both hold 512 *elements*; only the byte count per element
-    differs.
-
-    ``wrap_size`` predates that split, when a single 2048 B ``r_cyclic`` had to
-    wrap at 512 B in an 8-bit format and the format-aware caller (``Ipu``) supplied
-    the size on every call. It defaults to the register's full allocation
-    (``total_size``), which is now always the right answer -- nothing in
-    ``src/`` overrides it.
+    ``r_cyclic`` (512 B, 1 B/element) and ``r_cyclic_wide_debug`` (2048 B,
+    4 B/element) are separate registers, each wrapping at its own allocation
+    (#180); ``wrap_size`` defaults to that allocation, and nothing in ``src/``
+    overrides it.
     """
 
     def _make_get(n: str = name, default_sz: int = total_size):
@@ -760,36 +765,35 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _attach_dynamic_accessors(regfile_instance: RegFile) -> None:
-    """Attach dynamically generated accessor methods to a RegFile instance.
-
-    Called from ``__init__`` only for a **custom** schema.  The default schema
-    attaches its accessors to the class instead (see
-    ``_attach_default_accessors_to_class``), because building ~50 closures and
-    binding them per instance is pure overhead when every instance shares one
-    schema — and the emulator builds a ``RegFile`` per snapshot.
-    """
-    methods = _create_accessor_methods(regfile_instance._schema)
-    for method_name, method in methods.items():
-        setattr(
-            regfile_instance,
-            method_name,
-            method.__get__(regfile_instance, type(regfile_instance)),
-        )
-
-
 _DEFAULT_ACCESSORS_ATTACHED = False
 
 
 def _attach_default_accessors_to_class() -> None:
-    """Attach the default schema's accessors to ``RegFile`` itself, once.
-
-    Instance attachment stays available for a custom schema, and those
-    instance attributes shadow these class methods for every name they define.
-    """
+    """Attach the default schema's accessors to ``RegFile`` itself, once
+    (except those RegFile defines as compiled methods)."""
     global _DEFAULT_ACCESSORS_ATTACHED
     if _DEFAULT_ACCESSORS_ATTACHED:
         return
-    for method_name, method in _create_accessor_methods(REGFILE_SCHEMA).items():
-        setattr(RegFile, method_name, method)
+    for method_name, method in _GENERATED.items():
+        if method_name not in _COMPILED_ACCESSORS:
+            setattr(RegFile, method_name, method)
     _DEFAULT_ACCESSORS_ATTACHED = True
+
+
+def _scalar_count(name: str) -> int:
+    """The count of a default-schema 4-byte scalar bank that no alias renames:
+    what RegFile's compiled get_/set_ methods for it assume."""
+    desc = next(d for d in REGFILE_SCHEMA if d.name == name)
+    assert not desc.is_vector and desc.size_bytes == 4
+    assert not any(name in d.debug_aliases for d in REGFILE_SCHEMA)
+    return desc.count
+
+
+_LR_COUNT: Final = _scalar_count("lr")
+_CR_COUNT: Final = _scalar_count("cr")
+
+#: The default schema's generated accessors; RegFile defines these itself.
+_GENERATED: Final[dict[str, Any]] = _create_accessor_methods(REGFILE_SCHEMA)
+_COMPILED_ACCESSORS: Final = frozenset(
+    {"get_lr", "get_cr", "set_lr", "set_cr", "get_r_mask", "set_r_mask", "set_r_acc_word"}
+)
