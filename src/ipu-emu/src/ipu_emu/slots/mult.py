@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import numpy as np
 import numpy.typing as npt
@@ -68,16 +68,16 @@ SCALAR_LCR = 1  # LcrIdx: an LR selects an Ra element, or a CR is the scalar
 SCALAR_CR = 2  # CrIdx: the CR is the scalar (geometry.cr_scalar)
 
 # 0..LANES-1, for the rotated Ra and R_CYCLIC windows.
-_LANE_INDEX = np.arange(LANES)
+_LANE_INDEX: Final = np.arange(LANES)
 
 # Ra (R0 ++ R1) holds two rows of lanes. The R_CYCLIC ring holds 512 elements
 # in every element width: ``r_cyclic`` is its 1-byte-element form.
-_RA_LANES = 2 * LANES
-_RING_LANES = _reg_sizes["r_cyclic"]["size_bytes"]
+_RA_LANES: Final = 2 * LANES
+_RING_LANES: Final[int] = _reg_sizes["r_cyclic"]["size_bytes"]
 
 # One R_MASK slot (128 bits) with every lane active.
-_ALL_ONES_MASK_SLOT = b"\xff" * 16
-_ALL_ONES_MASK_INT = (1 << LANES) - 1
+_ALL_ONES_MASK_SLOT: Final = b"\xff" * 16
+_ALL_ONES_MASK_INT: Final = (1 << LANES) - 1
 
 
 @lru_cache(maxsize=512)
@@ -112,7 +112,7 @@ def _active_lane_count(mask_int: int, ds_active: int) -> int:
 
 
 #: Bytes of one row-metadata word in ``r_meta`` / ``r_cyclic_meta``.
-_META_BYTES = 2
+_META_BYTES: Final = 2
 
 
 def _qf(ipu: Ipu, qf: int) -> Nx8Format | None:
@@ -375,8 +375,17 @@ def _mult_resolve_lcr_scalar(
     *via*, Ra as ``r``).
     """
     if src < LR_REG_COUNT:
-        # The LR holds an INDEX into Ra; the Ra DATA is a separate read.
-        return _ra_lanes(ipu, codec, nx8)[ipu.view.lr(src, via) % _RA_LANES]
+        # The LR holds an INDEX into Ra; the Ra DATA is a separate read. Only
+        # the selected element is decoded: the value _ra_lanes(...)[k] has,
+        # after the same reads in the same order (Ra, its two metadata words, the LR).
+        view = ipu.view
+        buf = view.read(vector_registers(ipu.state).ra)
+        if nx8 is None:
+            k = view.lr(src, via) % _RA_LANES
+            return codec.decode(buf[k * codec.element_bytes :], 1)[0]
+        metadata = (_metadata(ipu, "r_meta", 0), _metadata(ipu, "r_meta", 1))
+        k = view.lr(src, via) % _RA_LANES
+        return codec.decode(buf[k * codec.element_bytes :], 1, nx8, metadata[k // LANES])[0]
     cr_idx = src - LR_REG_COUNT
     return cr_scalar(ipu.state, cr_idx, ipu.view.cr(cr_idx, via))
 
