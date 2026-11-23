@@ -10,7 +10,7 @@ handlers of one engine read through.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from ipu_emu.cr_contents import ds_of, half_of, qf_of
 from ipu_emu.errors import EmulatorError, UndeclaredRead
@@ -28,7 +28,7 @@ __all__ = ["CycleView"]
 
 #: Emulator-only storage that holds a declared register in a 4-byte element
 #: format: a read of it has the view declared for that register.
-_DECLARED_AS = {wide: declared for declared, wide in WIDE_REGISTERS.items()}
+_DECLARED_AS: Final = {wide: declared for declared, wide in WIDE_REGISTERS.items()}
 
 
 class CycleView:

@@ -28,7 +28,7 @@ import struct
 import warnings
 import weakref
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 import numpy as np
 from mypy_extensions import mypyc_attr
@@ -194,7 +194,7 @@ class RegFile:
     def view(self, name: str) -> memoryview:
         """Register *name*'s bytes, read-only: no observer is told, and
         constant-ones provenance is kept. Writing through it raises ``TypeError``."""
-        return memoryview(self._storage[self._resolve(name)]).toreadonly()
+        return memoryview(self._storage[self._alias_map.get(name, name)]).toreadonly()
 
     def packed_bank(self, name: str) -> memoryview:
         """Scalar register bank *name* (LR or CR) as packed little-endian uint32
@@ -214,7 +214,7 @@ class RegFile:
         """Bytes ``[start, start+size)`` of register *name* (to its end when
         *size* is None), writable. Observers are told that exactly that range
         may change, and its constant-ones provenance is forgotten."""
-        canon = self._resolve(name)
+        canon = self._alias_map.get(name, name)  # self._resolve(name), inlined
         storage = self._storage[canon]
         if size is None:
             size = len(storage) - start
@@ -400,6 +400,10 @@ class RegFile:
             for name, bits in self._constant_one_bytes.items()
             if name not in other._mutable_exports
         }
+        if not other._observers:  # nothing to tell, nothing to attach one mid-copy
+            for name, buf in self._storage.items():
+                dst[name][:] = buf
+            return
         for name, buf in self._storage.items():
             for observer in other._observers:
                 observer(name, 0, len(buf))
@@ -503,16 +507,15 @@ def _create_accessor_methods(schema: list[RegDescriptor]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-_UNPACK_WORD = struct.Struct("<I").unpack_from
-_PACK_WORD = struct.Struct("<I").pack_into
+_UNPACK_WORD: Final = struct.Struct("<I").unpack_from
+_PACK_WORD: Final = struct.Struct("<I").pack_into
 
 
 def _add_scalar_accessors(
     methods: dict, name: str, desc: RegDescriptor, schema: list[RegDescriptor]
 ) -> None:
-    # A valid int index of a 4-byte scalar bank reads its word directly; that is
-    # what get_scalar does after its checks pass. Anything else (and a register
-    # whose name is also some register's alias) takes get_scalar, which raises.
+    # A valid int index of a 4-byte bank reads its word directly, as get_scalar
+    # does once its checks pass; anything else (or an aliased name) takes get_scalar.
     direct = desc.size_bytes == 4 and not any(name in d.debug_aliases for d in schema)
     count = desc.count
 
@@ -533,8 +536,7 @@ def _add_scalar_accessors(
         get_val.__doc__ = f"Get {n}[index] as a 32-bit integer."
         return get_val
 
-    # set_scalar's checks, for a valid int index and value of an LR or CR: a
-    # read-only CR (and everything unusual) still goes through set_scalar.
+    # Likewise set_scalar for an int index and value of an LR or a writable CR.
     direct_set = direct and desc.kind in (RegKind.CR, RegKind.LR)
     read_only = CR_READ_ONLY_INITIAL_VALUES if desc.kind == RegKind.CR else {}
 
@@ -558,7 +560,6 @@ def _add_scalar_accessors(
                 self.set_scalar(n, index, value)
 
         else:
-
             def set_val(self, index: int, value: int) -> None:
                 self.set_scalar(n, index, value)
 

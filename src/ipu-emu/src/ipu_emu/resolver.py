@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from ipu_emu.errors import EmulatorError
 from ipu_emu.geometry import WIDE_REGISTERS
@@ -149,8 +149,8 @@ class FaithfulResolver:
         return operands
 
 
-_WORD = struct.Struct("<I").unpack_from
-_BANK_COUNT = {READ_LR: LR_REG_COUNT, READ_CR: CR_REG_COUNT}
+_WORD: Final = struct.Struct("<I").unpack_from
+_BANK_COUNT: Final = {READ_LR: LR_REG_COUNT, READ_CR: CR_REG_COUNT}
 
 
 def _lcr_half_table() -> dict[int, LcrHalf]:
@@ -165,13 +165,13 @@ def _lcr_half_table() -> dict[int, LcrHalf]:
         code += 1
 
 
-_LCR_HALVES = _lcr_half_table()
+_LCR_HALVES: Final = _lcr_half_table()
 
 # How one read of a decoded op resolves (PackedResolver's per-word plan): a
 # packed LR/CR word, a sign-extended CR half of one, or a mult-stage register.
-_STEP_WORD = 0
-_STEP_HALF = 1
-_STEP_MULT = 2
+_STEP_WORD: Final = 0
+_STEP_HALF: Final = 1
+_STEP_MULT: Final = 2
 
 #: (operand name, from the snapshot, step kind, bank read code, byte offset or
 #: mult-stage code, the LcrHalf a half step sign-extends).

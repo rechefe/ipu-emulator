@@ -20,13 +20,14 @@ from __future__ import annotations
 import weakref
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 from ipu_emu.geometry import effective_mult_mask
 from ipu_emu.slots import mult
 
 if TYPE_CHECKING:
     from ipu_emu.cycle import CycleObserver, IssuedOp
+    from ipu_emu.cycle_view import CycleView
     from ipu_emu.ipu import Ipu, SlotPlan
     from ipu_emu.resolver import OperandResolver
 
@@ -54,7 +55,7 @@ class MultIdentity:
         return _MULT_IDENTITIES[cr, vector]
 
 
-_MULT_IDENTITIES = {
+_MULT_IDENTITIES: Final = {
     (cr, vector): MultIdentity(cr=cr, vector=vector)
     for cr in (False, True)
     for vector in (False, True)
@@ -94,8 +95,8 @@ class IssueFacts(NamedTuple):
     mask: int | None
 
 
-_IssueFacts = IssueFacts
-_new_facts = tuple.__new__
+_IssueFacts: Final = IssueFacts
+_new_facts: Final = tuple.__new__
 
 
 class Issuer:
@@ -108,11 +109,16 @@ class Issuer:
             (:mod:`ipu_emu.resolver`).
     """
 
-    __slots__ = ("_ipu", "_resolve", "current", "observers")
+    __slots__ = ("_ipu", "_resolve", "_view", "current", "observers")
 
     def __init__(self, ipu: Ipu, resolver: OperandResolver) -> None:
         self._ipu = weakref.ref(ipu)
         self._resolve = resolver.resolve
+        # The engine's view, which it creates first and never replaces: held
+        # so each op sets its plan and reads the snapshot without two
+        # property calls on the engine (``ipu.view``, ``ipu.snapshot_buffer``,
+        # whose buffer ``Ipu.bind_snapshot`` gives the view too).
+        self._view: CycleView = ipu.view
         #: The record of the op whose handler is running (or ran last); ``None``
         #: before the first execute.
         self.current: IssueFacts | None = None
@@ -134,11 +140,11 @@ class Issuer:
         ipu = self._ipu()
         assert ipu is not None
         plan = op.plan
-        ipu.view.plan = plan
+        self._view.plan = plan
         encoded = op.operands
         assert encoded is not None
         operands = (
-            self._resolve(plan, encoded, ipu.snapshot_buffer)  # type: ignore[arg-type]
+            self._resolve(plan, encoded, self._view._snapshot)  # type: ignore[arg-type]
             if plan.reads
             else dict(encoded)
         )
@@ -194,11 +200,11 @@ class Issuer:
         ipu = self._ipu()
         assert ipu is not None
         plan = op.plan
-        ipu.view.plan = plan
+        self._view.plan = plan
         encoded = op.operands
         assert encoded is not None
         if plan.reads:
-            return self._resolve(plan, encoded, ipu.snapshot_buffer)  # type: ignore[arg-type]
+            return self._resolve(plan, encoded, self._view._snapshot)  # type: ignore[arg-type]
         return dict(encoded)
 
     def dispatch(self, op: IssuedOp, inst: Mapping[str, int]) -> Any:
@@ -216,11 +222,11 @@ class Issuer:
         ipu = self._ipu()
         assert ipu is not None
         plan = op.plan
-        ipu.view.plan = plan
+        self._view.plan = plan
         encoded = op.operands
         assert encoded is not None
         operands = (
-            self._resolve(plan, encoded, ipu.snapshot_buffer)  # type: ignore[arg-type]
+            self._resolve(plan, encoded, self._view._snapshot)  # type: ignore[arg-type]
             if plan.reads
             else dict(encoded)
         )
@@ -264,7 +270,7 @@ class Issuer:
         """
         ipu = self._ipu()
         assert ipu is not None
-        view = ipu.view
+        view = self._view
         resolve = self._resolve
         issued = []
         for op in ops:
@@ -277,7 +283,7 @@ class Issuer:
             encoded = op.operands
             assert encoded is not None
             operands = (
-                resolve(plan, encoded, ipu.snapshot_buffer)  # type: ignore[arg-type]
+                resolve(plan, encoded, self._view._snapshot)  # type: ignore[arg-type]
                 if plan.reads
                 else dict(encoded)
             )
@@ -308,7 +314,7 @@ class Issuer:
         ipu = self._ipu()
         assert ipu is not None
         self.current = facts
-        ipu.view.plan = facts.plan
+        self._view.plan = facts.plan
         if self.observers:
             return self._observed(ipu, facts, self.observers)
         return facts.plan.fn(ipu, **facts.operands)

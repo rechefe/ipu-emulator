@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from functools import cache
 from types import MappingProxyType
-from typing import TYPE_CHECKING, NamedTuple, Protocol
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol
 
 from ipu_emu.cr_contents import constant_value, fp32_constant_value
 from ipu_emu.errors import EmulatorError
@@ -105,7 +105,7 @@ _ALL_LANES = (1 << LANES) - 1
 _MASK_SLOT_BYTES = LANES // 8
 _MASK_SLOTS = LANES // _MASK_SLOT_BYTES
 
-_EIGHT_BIT_ELEMENT_BYTES = FORMATS[ElementFormat.NX8].element_bytes
+_EIGHT_BIT_ELEMENT_BYTES: Final = FORMATS[ElementFormat.NX8].element_bytes
 
 #: The name suffix of a register's emulator-only 4-byte storage (``ipu_isa.registers``).
 _WIDE_SUFFIX = "_wide_debug"
@@ -162,8 +162,8 @@ class VectorRegisters(NamedTuple):
     r_cyclic: str
 
 
-_EIGHT_BIT_REGISTERS = VectorRegisters(ra="r", r_cyclic="r_cyclic")
-_WIDE_REGISTERS = VectorRegisters(
+_EIGHT_BIT_REGISTERS: Final = VectorRegisters(ra="r", r_cyclic="r_cyclic")
+_WIDE_REGISTERS: Final = VectorRegisters(
     ra=WIDE_REGISTERS[_EIGHT_BIT_REGISTERS.ra],
     r_cyclic=WIDE_REGISTERS[_EIGHT_BIT_REGISTERS.r_cyclic],
 )

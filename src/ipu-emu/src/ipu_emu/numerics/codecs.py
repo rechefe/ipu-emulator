@@ -127,11 +127,12 @@ class LaneCodec(Protocol):
         ...
 
 
-_NO_EVENTS: frozenset[ArithmeticEvent] = frozenset()
-_F4 = np.dtype("<f4")
-_U1 = np.dtype(np.uint8)
-_all_true = np.logical_and.reduce
-_OVERFLOW = frozenset({ArithmeticEvent.ACC_OVERFLOW})
+_NO_EVENTS: Final[frozenset[ArithmeticEvent]] = frozenset()
+_F4: Final = np.dtype("<f4")
+_U1: Final = np.dtype(np.uint8)
+_all_true: Final = np.logical_and.reduce
+_LANES: Final = LANES
+_OVERFLOW: Final = frozenset({ArithmeticEvent.ACC_OVERFLOW})
 
 
 class _Codec:
@@ -255,8 +256,8 @@ class _FloatCodec(_Codec):
         stores, and that call reports no event. (``max`` returns one of its two
         operands per lane, so it is exact in either width.)
         """
-        a = np.frombuffer(a_raw, dtype=_F4, count=LANES)
-        b = np.frombuffer(b_raw, dtype=_F4, count=LANES)
+        a = np.frombuffer(a_raw, dtype=_F4, count=_LANES)
+        b = np.frombuffer(b_raw, dtype=_F4, count=_LANES)
         with np.errstate(all="ignore"):
             if op == "add":
                 result = a + b
