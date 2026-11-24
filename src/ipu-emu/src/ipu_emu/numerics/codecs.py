@@ -367,7 +367,8 @@ class Nx8Codec(_FloatCodec):
         """:meth:`decode` as float32 (the table's values are float32 values)."""
         if qf is None:
             raise IsaValueError("an NX8 element is decoded with a QF format")
-        return nx8_table32(qf, metadata)[np.frombuffer(raw, dtype=_U1, count=count)]
+        # take() of the codes is the fancy index table[codes], with less overhead.
+        return nx8_table32(qf, metadata).take(np.frombuffer(raw, dtype=_U1, count=count))
 
 
 class Fp32Codec(_FloatCodec):

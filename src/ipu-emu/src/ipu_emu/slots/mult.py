@@ -202,13 +202,14 @@ def _r_cyclic_window32(
         first = codec.decode32(buf[row * step :], LANES)
         second = codec.decode32(buf, LANES)  # the window wraps to the ring's first row
         return np.concatenate((first[offset:], second[:offset]))
-    first = codec.decode32(buf[row * step :], LANES, nx8, _metadata(ipu, "r_cyclic_meta", row))
+    meta = ipu.view.read("r_cyclic_meta")  # each row's word, as _metadata reads it
+    row_meta: int = _META_WORD(meta, row * _META_BYTES)[0]
+    first = codec.decode32(buf[row * step :], LANES, nx8, row_meta)
     if not offset:
         return first
     after = (row + 1) % _RING_ROWS
-    second = codec.decode32(
-        buf[after * step :], LANES, nx8, _metadata(ipu, "r_cyclic_meta", after)
-    )
+    after_meta: int = _META_WORD(meta, after * _META_BYTES)[0]
+    second = codec.decode32(buf[after * step :], LANES, nx8, after_meta)
     return np.concatenate((first[offset:], second[:offset]))
 
 
