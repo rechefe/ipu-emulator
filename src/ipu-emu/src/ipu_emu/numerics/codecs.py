@@ -300,6 +300,11 @@ class _FloatCodec(_Codec):
         When it returns lanes, they are exactly the float32 values
         ``store_acc_events`` stores for ``mult(a, b)`` (with *a* as float64).
         """
+        if type(b) is np.float32:  # a float32 value already (a NaN one is refused below)
+            with np.errstate(all="ignore"):
+                product: npt.NDArray[np.float32] = a * b  # type: ignore[assignment]
+                finite = math.isfinite(_sum(product))
+            return product if finite and product.dtype == _F4 else None
         if isinstance(b, (float, np.float32)):  # np.float64 is a float
             value = float(b)  # exact for both
         else:

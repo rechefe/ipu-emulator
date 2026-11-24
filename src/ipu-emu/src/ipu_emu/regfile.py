@@ -141,7 +141,7 @@ class RegFile:
         _PACK_WORD(self._storage[name], offset, value & LR_CR_SCALAR_VALUE_MASK)
 
     def get_r_mask(self) -> bytearray:
-        return _GENERATED["get_r_mask"](self)
+        return bytearray(self._storage["r_mask"])  # the generated get_r_mask
 
     def set_r_mask(self, data: bytes | bytearray) -> None:
         _GENERATED["set_r_mask"](self, data)

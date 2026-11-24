@@ -33,7 +33,7 @@ from ipu_emu.geometry import (
     xmem_row_size_bytes,
 )
 from ipu_emu.isa_alias_spec import VECTOR_IDENTITY_MULTS
-from ipu_emu.numerics.codecs import nx8_table
+from ipu_emu.numerics.codecs import nx8_table32
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
@@ -395,7 +395,8 @@ def _mult_resolve_lcr_scalar(
         k = view.lr(src, via) % _RA_LANES
         metadata: int = _META_WORD(meta, (k // LANES) * _META_BYTES)[0]
         if codec.element_bytes == 1:  # NX8: decode() is a table lookup of the element's code
-            return nx8_table(nx8, metadata)[buf[k]]
+            # (the float32 table: the same value, as np.float32, which mult32 takes as is)
+            return nx8_table32(nx8, metadata)[buf[k]]
         return codec.decode(buf[k * codec.element_bytes :], 1, nx8, metadata)[0]
     cr_idx = src - LR_REG_COUNT
     return cr_scalar(ipu.state, cr_idx, ipu.view.cr(cr_idx, via))
