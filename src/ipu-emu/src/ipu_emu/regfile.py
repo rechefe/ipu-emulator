@@ -18,7 +18,7 @@ from typing import Any, Final, Protocol
 import numpy as np
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegKind
-from ipu_emu.register_buffer import layout_of, slices, write
+from ipu_emu.register_buffer import layout_of, readonly_views, slices, write
 from ipu_emu.errors import (
     EmulatorError,
     RegisterIndexError,
@@ -157,6 +157,7 @@ class RegFile:
         self._layout = layout_of(self._schema)
         self._buffer = bytearray(sum(size for _, size in self._layout.values()))
         self._storage: dict[str, memoryview] = slices(self._buffer, self._layout)
+        self._views: dict[str, memoryview] = readonly_views(self._storage)  # view()'s
         self._descriptors: dict[str, RegDescriptor] = {}
         self._alias_map: dict[str, str] = {}  # alias -> canonical name
         self._constant_one_bytes: dict[str, int] = {}
@@ -213,9 +214,9 @@ class RegFile:
     # -- byte access ----------------------------------------------------------
 
     def view(self, name: str) -> memoryview:
-        """Register *name*'s bytes, read-only: no observer is told, and
-        constant-ones provenance is kept. Writing through it raises ``TypeError``."""
-        return _memoryview(self._storage[self._alias_map.get(name, name)]).toreadonly()
+        """Register *name*'s bytes, read-only (a write raises ``TypeError``); no observer is
+        told, provenance is kept. One cached object, seeing later writes: never release() it."""
+        return self._views[self._alias_map.get(name, name)]
 
     def packed_bank(self, name: str) -> memoryview:
         """Scalar register bank *name* (LR or CR) as packed little-endian uint32
@@ -393,11 +394,9 @@ class RegFile:
         writes go to the live register file.
 
         Only the register *storage* is copied. The schema, the descriptors and
-        the alias map describe the layout rather than the state — they are
-        never mutated, so the copy shares them. This runs once per emulated
-        cycle, and ``copy.deepcopy`` spent 384 us of it walking descriptors and
-        per-instance bound accessors (73% of total emulator runtime) to produce
-        a register file that differs only in its bytes.
+        the alias map describe the layout rather than the state — never
+        mutated, so the copy shares them (``copy.deepcopy`` spent 73% of the
+        emulator's runtime walking them, for a file that differs only in bytes).
         """
         new = RegFile()  # then made a copy of this one, field by field
         new._schema = self._schema
@@ -409,6 +408,7 @@ class RegFile:
         new._layout = self._layout
         new._buffer = bytearray(self._buffer)
         new._storage = slices(new._buffer, self._layout)
+        new._views = readonly_views(new._storage)
         return new
 
     def copy_into(self, other: RegFile) -> None:

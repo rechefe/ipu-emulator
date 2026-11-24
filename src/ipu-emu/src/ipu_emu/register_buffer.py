@@ -35,6 +35,13 @@ def slices(buffer: bytearray, layout: dict[str, tuple[int, int]]) -> dict[str, m
     return {name: whole[offset : offset + size] for name, (offset, size) in layout.items()}
 
 
+def readonly_views(storage: dict[str, memoryview]) -> dict[str, memoryview]:
+    """A read-only view of each register in *storage*: the ones
+    ``RegFile.view`` hands out. A register's slice never changes identity
+    (the buffer is never reallocated), so each stays valid for the file's life."""
+    return {name: view.toreadonly() for name, view in storage.items()}
+
+
 def write(view: memoryview, start: int, stop: int, data: object) -> None:
     """``view[start:stop] = data`` as a ``bytearray`` slice assignment does it.
 

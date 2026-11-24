@@ -71,6 +71,16 @@ neighbouring rows are not strictly comparable. The final check measured
   methods: `get_scalar`, `set_scalar`, `get_register_bytes`,
   `set_register_bytes`, `view`, `mutable`. The default schema keeps every named
   accessor.
+- **`RegFile.view()` is cached** (lever 3, approved). `view(name)` returns the
+  same read-only `memoryview` object on every call, built once per register
+  file (and once per snapshot) from its register's slice of the single buffer.
+  It still sees every later write. **Do not `release()` it, and do not use it
+  as a context manager** (`with rf.view(...)` releases it on exit): either
+  breaks every later reader of that register. Copy (`bytes(...)`) whatever has
+  to outlive a write. The cache never goes stale: a register's slice never
+  changes identity, because the buffer is only allocated in `__init__` and
+  `snapshot()` (each builds its own views) and is otherwise written in place
+  (`copy_into` included).
 
 ## Tests changed, and why
 
@@ -93,6 +103,7 @@ neighbouring rows are not strictly comparable. The final check measured
   - `test_mult_window`: the float32 window equals the float64 one at every
     start element.
   - `test_regfile.test_a_custom_schema_warns_and_works_through_the_generic_methods`
+  - `test_regfile.test_view_is_one_cached_object_that_sees_later_writes`
 
 Memory, 200 back-to-back `run_kernel` calls in one process with the cyclic
 collector off:

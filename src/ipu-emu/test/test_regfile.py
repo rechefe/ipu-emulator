@@ -628,6 +628,21 @@ class TestReadAndWriteViews:
             rf.view("r_acc")[0] = 1
         assert not rf.get_r_acc_words().flags.writeable
 
+    def test_view_is_one_cached_object_that_sees_later_writes(self):
+        rf = RegFile()
+        lr = rf.view("lr")
+        assert rf.view("lr") is lr and lr.readonly
+        rf.set_lr(3, 7)  # a scalar write
+        rf.mutable("lr", 0, 4)[:] = b"\x01\x02\x03\x04"  # a mutable write
+        assert lr[12:16] == (7).to_bytes(4, "little") and lr[:4] == b"\x01\x02\x03\x04"
+        snap = rf.snapshot()  # a snapshot has its own views, of its own bytes
+        assert snap.view("lr") is not lr and snap.view("lr") == lr
+        rf.set_lr(3, 9)
+        assert snap.view("lr")[12:16] == (7).to_bytes(4, "little")
+        assert lr[12:16] == (9).to_bytes(4, "little")
+        rf.copy_into(snap)  # the reused snapshot's buffer is written in place
+        assert snap.view("lr")[12:16] == (9).to_bytes(4, "little")
+
     def test_mutable_reports_and_forgets_exactly_its_range(self):
         rf = RegFile()
         rf.mark_constant_ones("r", 0, 128)
