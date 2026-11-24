@@ -262,8 +262,15 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> bool:
         # as the multiply wrote it. The hardware still applies the mask.
         # Lane statistics are still recorded: prototyping mode is only
         # allowed to skip work, never to change what a run reports.
-        slot = (mask_idx % (LANES // 16)) * 16
-        if view.read("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT:
+        facts = ipu.issuer.current
+        if facts is not None and facts.mask is not None:
+            # The mask the issue step read for this op, from the same R_MASK
+            # view with nothing written since: unshifted, it is the slot itself.
+            all_ones = facts.mask == _ALL_ONES_MASK_INT
+        else:
+            slot = (mask_idx % (LANES // 16)) * 16
+            all_ones = view.read("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT
+        if all_ones:
             _count_mult_lanes(ipu, _ALL_ONES_MASK_INT, ds_value)
             return False
 
