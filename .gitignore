@@ -26,3 +26,9 @@
 # Local benchmark results (bazel run //tools/bench:bench)
 bench-results/
 .claude/worktrees/
+
+# mypyc build (tools/mypyc/build.sh): extensions, work dir, stamp
+/src/ipu-emu/src/**/*.so
+/src/ipu-isa/src/**/*.so
+/build/mypyc/
+/mypyc-build.json

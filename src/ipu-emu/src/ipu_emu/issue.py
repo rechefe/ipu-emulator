@@ -17,17 +17,20 @@ handlers read the identity verdict for their lane counts and their lane mask.
 
 from __future__ import annotations
 
-import weakref
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
+
+import numpy as np
+import numpy.typing as npt
 
 from ipu_emu.geometry import effective_mult_mask
 from ipu_emu.slots import mult
 
 if TYPE_CHECKING:
     from ipu_emu.cycle import CycleObserver, IssuedOp
-    from ipu_emu.ipu import Ipu, SlotPlan
+    from ipu_emu.cycle_view import CycleView
+    from ipu_emu.ipu import Ipu, SlotPlan, _AliasCheck
     from ipu_emu.resolver import OperandResolver
 
 
@@ -54,7 +57,7 @@ class MultIdentity:
         return _MULT_IDENTITIES[cr, vector]
 
 
-_MULT_IDENTITIES = {
+_MULT_IDENTITIES: Final = {
     (cr, vector): MultIdentity(cr=cr, vector=vector)
     for cr in (False, True)
     for vector in (False, True)
@@ -94,8 +97,8 @@ class IssueFacts(NamedTuple):
     mask: int | None
 
 
-_IssueFacts = IssueFacts
-_new_facts = tuple.__new__
+_IssueFacts: Final = IssueFacts
+_new_facts: Final = tuple.__new__
 
 
 class Issuer:
@@ -108,14 +111,35 @@ class Issuer:
             (:mod:`ipu_emu.resolver`).
     """
 
-    __slots__ = ("_ipu", "_resolve", "current", "observers")
+    __slots__ = (
+        "_ipu",
+        "_resolve",
+        "_view",
+        "current",
+        "mult_product",
+        "observers",
+        "prior_product",
+    )
 
     def __init__(self, ipu: Ipu, resolver: OperandResolver) -> None:
-        self._ipu = weakref.ref(ipu)
+        # The engine, held until close() (Ipu.close): an engine and its
+        # issuer refer to each other.
+        self._ipu: Ipu | None = ipu
         self._resolve = resolver.resolve
+        # The engine's view, which it creates first and never replaces: held
+        # so each op sets its plan and reads the snapshot without two
+        # property calls on the engine (``ipu.view``, ``ipu.snapshot_buffer``,
+        # whose buffer ``Ipu.bind_snapshot`` gives the view too).
+        self._view: CycleView = ipu.view
         #: The record of the op whose handler is running (or ran last); ``None``
         #: before the first execute.
         self.current: IssueFacts | None = None
+        #: The MULT -> ACC hand-over of one word (the fused path): the float32
+        #: lanes a MULT handler stored in MULT_RES (``mult_product``), which
+        #: become ``prior_product`` for the next op dispatched and are then
+        #: dropped. Every other way an op runs drops both.
+        self.mult_product: npt.NDArray[np.float32] | None = None
+        self.prior_product: npt.NDArray[np.float32] | None = None
         #: The observers told of every op executed, set by the cycle at the
         #: start of each cycle (``Cycle.observers``); empty outside one.
         self.observers: tuple[CycleObserver, ...] = ()
@@ -131,13 +155,16 @@ class Issuer:
         Returns:
             The op's fact record, for :meth:`execute`.
         """
-        ipu = self._ipu()
+        ipu = self._ipu
+        assert ipu is not None
         plan = op.plan
-        ipu.view.plan = plan
+        self._view.plan = plan
+        encoded = op.operands
+        assert encoded is not None
         operands = (
-            self._resolve(plan, op.operands, ipu.snapshot_buffer)
+            self._resolve(plan, encoded, self._view._snapshot)  # type: ignore[arg-type]
             if plan.reads
-            else dict(op.operands)
+            else dict(encoded)
         )
         if plan.stat is not None:
             stats = ipu.state.stats
@@ -145,7 +172,7 @@ class Issuer:
         if plan.is_mult or plan.alias_checks:
             return self._probe(ipu, op, inst, operands)
         return _new_facts(
-            _IssueFacts, (op.slot, plan, op.operands, operands, None, None, op.lr_writes, None)
+            _IssueFacts, (op.slot, plan, encoded, operands, None, None, op.lr_writes, None)
         )
 
     @staticmethod
@@ -155,7 +182,9 @@ class Issuer:
         """The identity verdict and alias of an op whose reads are resolved: its record."""
         plan = op.plan
         encoded = op.operands
-        identity = mask = None
+        assert encoded is not None
+        identity: MultIdentity | None = None
+        mask: int | None = None
         if plan.mask_cr_operand is not None:
             # Read now, before the handler, which applies this same mask, in
             # the views the instruction declares (ipu.view's plan is this op's).
@@ -173,7 +202,10 @@ class Issuer:
             identity = _MULT_IDENTITIES[
                 bool(plan.scalar_kind)
                 and mult.scalar_is_one(
-                    ipu, plan.scalar_kind, operands[plan.scalar_operand], plan.scalar_operand
+                    ipu,
+                    plan.scalar_kind,
+                    operands[plan.scalar_operand],  # type: ignore[index]
+                    plan.scalar_operand,  # type: ignore[arg-type]
                 ),
                 mult.vector_is_one(ipu, plan.inst_name, operands, encoded),
             ]
@@ -186,12 +218,15 @@ class Issuer:
         """*op*'s operands as its handler would get them now, with nothing
         issued: no counter, no observer (the precise-fault check, E04-20).
         Also points the cycle view at *op*'s plan, as issuing does."""
-        ipu = self._ipu()
+        ipu = self._ipu
+        assert ipu is not None
         plan = op.plan
-        ipu.view.plan = plan
+        self._view.plan = plan
+        encoded = op.operands
+        assert encoded is not None
         if plan.reads:
-            return self._resolve(plan, op.operands, ipu.snapshot_buffer)
-        return dict(op.operands)
+            return self._resolve(plan, encoded, self._view._snapshot)  # type: ignore[arg-type]
+        return dict(encoded)
 
     def dispatch(self, op: IssuedOp, inst: Mapping[str, int]) -> Any:
         """:meth:`issue` then :meth:`execute`, fused for the cycle's hot path.
@@ -205,12 +240,19 @@ class Issuer:
         Returns:
             The handler's return value.
         """
-        ipu = self._ipu()
+        ipu = self._ipu
+        assert ipu is not None
+        # The previous op's MULT product reaches this op only (see mult_product).
+        self.prior_product = self.mult_product
+        self.mult_product = None
         plan = op.plan
-        ipu.view.plan = plan
+        self._view.plan = plan
         encoded = op.operands
+        assert encoded is not None
         operands = (
-            self._resolve(plan, encoded, ipu.snapshot_buffer) if plan.reads else dict(encoded)
+            self._resolve(plan, encoded, self._view._snapshot)  # type: ignore[arg-type]
+            if plan.reads
+            else dict(encoded)
         )
         stat = plan.stat
         if stat is not None:
@@ -227,6 +269,7 @@ class Issuer:
         self.current = facts
         observers = self.observers
         if observers:
+            self.prior_product = None  # observed ops take the general path
             return self._observed(ipu, facts, observers)
         return plan.fn(ipu, **operands)
 
@@ -250,8 +293,10 @@ class Issuer:
             ops: The ops, in execution order.
             inst: The whole word.
         """
-        ipu = self._ipu()
-        view = ipu.view
+        ipu = self._ipu
+        assert ipu is not None
+        self.mult_product = self.prior_product = None
+        view = self._view
         resolve = self._resolve
         issued = []
         for op in ops:
@@ -262,7 +307,12 @@ class Issuer:
             # The LR sub-slots' hot path: just the reads (as issue() does).
             view.plan = plan
             encoded = op.operands
-            operands = resolve(plan, encoded, ipu.snapshot_buffer) if plan.reads else dict(encoded)
+            assert encoded is not None
+            operands = (
+                resolve(plan, encoded, self._view._snapshot)  # type: ignore[arg-type]
+                if plan.reads
+                else dict(encoded)
+            )
             issued.append(
                 _new_facts(
                     _IssueFacts,
@@ -287,12 +337,35 @@ class Issuer:
         Returns:
             The handler's return value (a ``CycleOutcome`` for BREAK, else ``None``).
         """
-        ipu = self._ipu()
+        self.mult_product = self.prior_product = None
+        ipu = self._ipu
+        assert ipu is not None
         self.current = facts
-        ipu.view.plan = facts.plan
+        self._view.plan = facts.plan
         if self.observers:
             return self._observed(ipu, facts, self.observers)
         return facts.plan.fn(ipu, **facts.operands)
+
+    def close(self) -> None:
+        """Let go of the engine (see ``Ipu.close``) and the op records: a
+        closed issuer cannot dispatch another op."""
+        self._ipu = None
+        self.current = None
+        self.observers = ()
+        self.mult_product = self.prior_product = None
+
+
+_FIRST_HARDWARE_ONLY: dict[int, tuple[SlotPlan, _AliasCheck | None]] = {}
+
+
+def _first_hardware_only(plan: SlotPlan) -> _AliasCheck | None:
+    """The first of *plan*'s alias checks that is hardware-only, or ``None`` (cached per plan)."""
+    entry = _FIRST_HARDWARE_ONLY.get(id(plan))
+    if entry is None or entry[0] is not plan:
+        first = next((check for check in plan.alias_checks if check.hardware_only), None)
+        entry = (plan, first)  # holds the plan, so its id is not reused
+        _FIRST_HARDWARE_ONLY[id(plan)] = entry
+    return entry[1]
 
 
 def _record_alias(
@@ -317,6 +390,14 @@ def _record_alias(
     Returns:
         The alias ID counted, or ``None``.
     """
+    if identity is None or not (identity.vector or identity.cr):
+        # Every check that is not hardware-only needs one of the two verdicts,
+        # so the first hardware-only check (which always matches) is the hit.
+        first = _first_hardware_only(plan)
+        if first is None:
+            return None
+        ipu.state.stats.alias_hits[first.alias_id] += 1
+        return first.alias_id
     for check in plan.alias_checks:
         if not check.hardware_only:
             if identity is None or not (identity.vector if check.vector_only else identity.cr):

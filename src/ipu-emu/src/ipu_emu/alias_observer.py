@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 import struct
-import weakref
 from typing import TYPE_CHECKING, Any
 
 from ipu_emu.alias_profile import Event
@@ -47,6 +46,11 @@ def _names_an_lr(operand_type: OperandType, encoded: int) -> bool:
     return 0 <= encoded < len(members) and members[encoded] in _LR_NAMES
 
 
+def _NO_CYCLE() -> None:
+    """``cycle_source`` outside a cycle: no cycle to read."""
+    return None
+
+
 class _CycleBinding:
     """An :class:`ExecutionObserver` attached to one cycle.
 
@@ -56,19 +60,24 @@ class _CycleBinding:
     straight to the observer.
     """
 
-    __slots__ = ("_cycle", "_observer", "end", "issued", "retired")
+    __slots__ = ("_cycle", "_observer", "issued", "retired")
 
     def __init__(self, observer: ExecutionObserver, cycle: Cycle) -> None:
         self._observer = observer
-        # Weak: the cycle holds this binding.
-        self._cycle = weakref.ref(cycle)
+        # The cycle holds this binding and the binding the cycle, until the
+        # cycle is closed (Cycle.close drops its observers). The observer
+        # reads the cycle only between begin and end: it holds it no longer.
+        self._cycle = lambda: cycle
         self.issued = observer.issued
         self.retired = observer.retired
-        self.end = observer.end
 
     def begin(self, pc: int) -> None:
         self._observer.cycle_source = self._cycle
         self._observer.begin(pc)
+
+    def end(self) -> None:
+        self._observer.end()
+        self._observer.cycle_source = _NO_CYCLE
 
 
 #: The vector registers whose rows the profiler tracks, by bank (each with its
@@ -84,10 +93,10 @@ _WIDE_ELEMENT_BYTES = element_width_bytes(ElementFormat.FP32)
 class ExecutionObserver:
     def __init__(self, profile, state):
         self.profile = profile
-        # Weak: state -> alias_profile -> _bridge -> observer, so a strong
-        # reference back would make every profiled state (and its XMEM) wait
-        # for the cyclic garbage collector instead of being freed on release.
-        self._state = weakref.ref(state)
+        # state -> alias_profile -> _bridge -> this observer -> state: the
+        # profile's detach() (ReferenceModel.close does it) breaks the cycle,
+        # so a closed model's state and XMEM are freed on release.
+        self._state = state
         fmt = state.fmt
         # The 4-byte formats are emulator-only (the profile's ``mode`` names them).
         wide = is_wide_format(fmt)
@@ -117,7 +126,7 @@ class ExecutionObserver:
         self.cycle_events = []
         # The cycle being observed (weakly), whose snapshot the operand windows
         # read; set by the cycle's binding (observing) at each cycle start.
-        self.cycle_source = lambda: None
+        self.cycle_source = _NO_CYCLE
         self._removers = (
             state.xmem.add_observer(self.memory),
             state.regfile.add_observer(self.register_write),
@@ -128,14 +137,15 @@ class ExecutionObserver:
         return _CycleBinding(self, cycle)
 
     def detach(self):
-        """Stop observing the state's XMEM and register file."""
+        """Stop observing the state's XMEM and register file, and let go of the state."""
         for remove in self._removers:
             remove()
         self._removers = ()
+        self._state = None
 
     @property
     def state(self):
-        return self._state()
+        return self._state
 
     def register_write(self, name, start, size):
         bank = _BANKS.get(name)

@@ -41,7 +41,6 @@ declaration says (E04-12).
 
 from __future__ import annotations
 
-import weakref
 from collections.abc import Callable, Mapping
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
@@ -60,7 +59,7 @@ from ipu_isa.slots import Slot
 from ipu_isa.timing import SLOT_EXECUTION_ORDER
 
 if TYPE_CHECKING:
-    from ipu_emu.ipu import Ipu, SlotPlan
+    from ipu_emu.ipu import SlotPlan
     from ipu_emu.ipu_state import IpuState
     from ipu_emu.issue import IssueFacts
     from ipu_emu.regfile import RegFile, RegFileReader
@@ -313,6 +312,28 @@ def resolver_for(state: IpuState) -> OperandResolver:
     return PackedResolver(state) if state.prototyping else FaithfulResolver(state)
 
 
+# mypyc cannot compile a nested function inside a non-native class's method,
+# so Cycle's two closures are built by these module-level helpers.
+def _schedule_dropper(
+    schedules: dict[int, tuple[Mapping[str, int] | None, Schedule | None]],
+) -> Callable[[int], None]:
+    """The IMEM write observer that drops *schedules*' entry for the written PC."""
+
+    def drop(pc: int) -> None:
+        schedules.pop(pc, None)
+
+    return drop
+
+
+def _observer_remover(cycle: Cycle, observer: CycleObserver) -> Callable[[], None]:
+    """A function that detaches *observer* from *cycle*."""
+
+    def remove() -> None:
+        cycle._observers = tuple(o for o in cycle._observers if o is not observer)
+
+    return remove
+
+
 class Cycle:
     """Executes the instruction word at the PC, one cycle per call.
 
@@ -321,8 +342,8 @@ class Cycle:
 
     Args:
         state: The machine state the cycle reads and writes.
-        ipu: The handlers and slot dispatch the cycle drives. Held as given:
-            ``Ipu`` passes a weak proxy of itself, so it is not a reference cycle.
+        ipu: The handlers and slot dispatch the cycle drives, held until
+            :meth:`close` (``Ipu.close`` closes the cycle it built).
         skip_idle_nops: Build schedules that skip idle NOP slots. Defaults to
             ``state.prototyping``: this flag and the operand resolver are
             prototyping's part in the cycle (two handlers have shortcuts of
@@ -333,7 +354,7 @@ class Cycle:
     def __init__(
         self,
         state: IpuState,
-        ipu: Ipu,
+        ipu: Any,  # an Ipu (typed Any: the dispatch goes through its attributes)
         *,
         skip_idle_nops: bool | None = None,
     ) -> None:
@@ -349,11 +370,9 @@ class Cycle:
         # is written, and the IMEM write observer drops it then.
         self._schedules: dict[int, tuple[Mapping[str, int] | None, Schedule | None]] = {}
         schedules = self._schedules
-        remove = state.inst_mem.add_write_observer(lambda pc: schedules.pop(pc, None))
-        # The observer holds the dict, not the cycle; it is removed when the
-        # cycle is collected, so a state outliving many engines does not
-        # collect dead observers.
-        weakref.finalize(self, remove)
+        # The observer holds the dict, not the cycle; close() removes it, so a
+        # state outliving many engines does not collect dead observers.
+        self._forget_imem = state.inst_mem.add_write_observer(_schedule_dropper(schedules))
         # The snapshot buffer is reused across cycles: every register is
         # refreshed from the live file at cycle start, so it holds exactly what
         # a fresh copy would. ``_source`` is the file it copies.
@@ -376,14 +395,19 @@ class Cycle:
             A function that detaches it; calling it twice is harmless.
         """
         self._observers = self._observers + (observer,)
-        ref = weakref.ref(self)
+        return _observer_remover(self, observer)
 
-        def remove() -> None:
-            cycle = ref()
-            if cycle is not None:
-                cycle._observers = tuple(o for o in cycle._observers if o is not observer)
+    def close(self) -> None:
+        """Release what this cycle holds: its IMEM write observer, its engine
+        and its observers (each may refer back to it). Calling it again does
+        nothing; a closed cycle cannot run another word.
 
-        return remove
+        An engine and its cycle refer to each other, so without ``close`` they
+        (and the state they hold) wait for the cyclic garbage collector.
+        """
+        self._forget_imem()
+        self._ipu = None
+        self._observers = ()
 
     @property
     def observers(self) -> tuple[CycleObserver, ...]:
@@ -402,7 +426,8 @@ class Cycle:
         if self._buffer is None:
             return None
         if self._public_snapshot is None:
-            self._public_snapshot = self._buffer.snapshot()
+            buffer: Any = self._buffer  # looked up, not a compiled call: patchable
+            self._public_snapshot = buffer.snapshot()
         return self._public_snapshot
 
     @property
@@ -448,6 +473,7 @@ class Cycle:
                 self._reserved(pc, schedule.reserved)
             self._take_snapshot()
             self._ipu.issuer.observers = self.observers
+            assert inst is not None
             return self._evaluate_break(inst, schedule)
         except (EmulatorFault, XMemBoundsError) as error:
             raise self._halt_on(error, pc) from None
@@ -497,6 +523,7 @@ class Cycle:
                 if honour_break and schedule.break_op is not None:
                     issuer = self._ipu.issuer
                     issuer.observers = observers
+                    assert inst is not None
                     if issuer.dispatch(schedule.break_op, inst) is CycleOutcome.BREAK:
                         return CycleOutcome.BREAK
             self._run(pc, inst, schedule, observers)
@@ -534,12 +561,12 @@ class Cycle:
         invalid CR content raises :class:`CrContentError`; the LR writes are
         undone first, as for a fault.
         """
-        operands_of = self._ipu.issuer.operands_of
         ipu = self._ipu
+        operands_of = ipu.issuer.operands_of
         found = None
         for op in checks:
             try:
-                fault = op.plan.check(ipu, **operands_of(op))
+                fault = op.plan.check(ipu, **operands_of(op))  # type: ignore[misc]
             except CrContentError:
                 # An invalid QF, DS or constant (ADR 0007): a configuration
                 # error, raised here so the word leaves the state as a fault does.
@@ -595,7 +622,8 @@ class Cycle:
         if regfile is not self._source or self._buffer is None:
             # First cycle, after reset, or the state swapped in another
             # register file: take a real copy of this one and reuse it.
-            self._buffer = regfile.snapshot()
+            source: Any = regfile  # looked up, not a compiled call: patchable
+            self._buffer = source.snapshot()
             self._source = regfile
             self._ipu.bind_snapshot(self._buffer)
         else:
@@ -637,7 +665,7 @@ class Cycle:
         lr_position = schedule.lr_position
         for op in slot_ops[:lr_position]:
             if op.operands is None:  # a skipped NOP, issued for its counter
-                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)
+                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)  # type: ignore[arg-type]
             else:
                 dispatch(op, inst)
         if schedule.lr_conflict is not None:
@@ -649,7 +677,7 @@ class Cycle:
             self._check(schedule.checks)
         for op in slot_ops[lr_position:]:
             if op.operands is None:
-                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)
+                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)  # type: ignore[arg-type]
             else:
                 dispatch(op, inst)
 

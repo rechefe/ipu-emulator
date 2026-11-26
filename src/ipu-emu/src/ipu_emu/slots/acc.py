@@ -73,8 +73,32 @@ def _store_mult_res_in_acc(ipu: Ipu) -> None:
     _store_acc(ipu, codec, res)
 
 
+def _acc_op32(ipu: Ipu, op: str) -> bool:
+    """R_ACC = R_ACC op MULT_RES in float32 when every lane stays finite
+    (:meth:`~ipu_emu.numerics.codecs.LaneCodec.acc_op32`: the same bytes and no
+    event); ``False``, having written nothing, otherwise."""
+    view = ipu.view
+    codec = ipu.codec
+    acc_raw = view.read("r_acc")
+    # The MULT of this word handed over the float32 lanes it stored in
+    # MULT_RES (Issuer.prior_product): use them when this read is the
+    # forwarded (live) MULT_RES they are; else decode MULT_RES as read.
+    product = ipu.issuer.prior_product
+    if product is not None and view.source("mult_res") is ipu.state.regfile:
+        lanes = codec.acc_op32_lanes(op, acc_raw, product)
+    else:
+        lanes = codec.acc_op32(op, acc_raw, view.read("mult_res"))
+    if lanes is None:
+        return False
+    raw = lanes.tobytes()
+    ipu.state.regfile.mutable("r_acc")[: len(raw)] = raw
+    return True
+
+
 def execute_acc_add(ipu: Ipu) -> None:
     """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
+    if _acc_op32(ipu, "add"):
+        return
     codec, acc, res = _operands(ipu)
     _store_acc(ipu, codec, codec.acc_add(acc, res))
 
@@ -86,6 +110,8 @@ def execute_acc_add_first(ipu: Ipu) -> None:
 
 def execute_acc_max(ipu: Ipu) -> None:
     """Execute ACC.MAX: Each R_ACC element takes max(R_ACC[i], MULT_RES[i])."""
+    if _acc_op32(ipu, "max"):
+        return
     codec, acc, res = _operands(ipu)
     _store_acc(ipu, codec, codec.max(acc, res))
 
@@ -97,6 +123,8 @@ def execute_acc_max_first(ipu: Ipu) -> None:
 
 def execute_acc_sub(ipu: Ipu) -> None:
     """Execute ACC.SUB: Subtract MULT_RES from each R_ACC element (running subtract)."""
+    if _acc_op32(ipu, "sub"):
+        return
     codec, acc, res = _operands(ipu)
     _store_acc(ipu, codec, codec.acc_sub(acc, res))
 

@@ -10,7 +10,7 @@ handlers of one engine read through.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from ipu_emu.cr_contents import ds_of, half_of, qf_of
 from ipu_emu.errors import EmulatorError, UndeclaredRead
@@ -28,7 +28,23 @@ __all__ = ["CycleView"]
 
 #: Emulator-only storage that holds a declared register in a 4-byte element
 #: format: a read of it has the view declared for that register.
-_DECLARED_AS = {wide: declared for declared, wide in WIDE_REGISTERS.items()}
+_DECLARED_AS: Final = {wide: declared for declared, wide in WIDE_REGISTERS.items()}
+
+
+_BY_REGISTER: dict[int, tuple[SlotPlan, dict[str, dict[str | None, bool]]]] = {}
+
+
+def _views_by_register(plan: SlotPlan) -> dict[str, dict[str | None, bool]]:
+    """*plan*.views as register -> via operand -> view (cached per plan; the
+    entry holds the plan, so its id is not reused)."""
+    entry = _BY_REGISTER.get(id(plan))
+    if entry is None or entry[0] is not plan:
+        by_register: dict[str, dict[str | None, bool]] = {}
+        for (register, via), from_snapshot in plan.views.items():
+            by_register.setdefault(register, {})[via] = from_snapshot
+        entry = (plan, by_register)
+        _BY_REGISTER[id(plan)] = entry
+    return entry[1]
 
 
 class CycleView:
@@ -52,13 +68,17 @@ class CycleView:
         state: The machine state whose live register file is read.
     """
 
-    __slots__ = ("_snapshot", "_state", "plan")
+    __slots__ = ("_by_register", "_by_register_plan", "_snapshot", "_state", "plan")
 
     def __init__(self, state: IpuState) -> None:
         self._state = state
         self._snapshot: RegFile | None = None
         #: The plan of the op being issued or executed; ``None`` before the first.
         self.plan: SlotPlan | None = None
+        # plan.views of the last plan source() served, as register -> via ->
+        # view (_views_by_register), so a read needs no (register, via) key.
+        self._by_register_plan: SlotPlan | None = None
+        self._by_register: dict[str, dict[str | None, bool]] = {}
 
     @property
     def snapshot(self) -> RegFile:
@@ -106,11 +126,13 @@ class CycleView:
             raise EmulatorError(
                 f"read of {register} with no op issued: a handler ran outside a cycle"
             )
-        try:
-            from_snapshot = plan.views[_DECLARED_AS.get(register, register), via]
-        except KeyError:
+        if plan is not self._by_register_plan:
+            self._by_register = _views_by_register(plan)
+            self._by_register_plan = plan
+        by_via = self._by_register.get(_DECLARED_AS.get(register, register))
+        if by_via is None or via not in by_via:  # as a KeyError of plan.views[register, via]
             raise self._undeclared(plan, register, via) from None
-        return self.snapshot if from_snapshot else self._state.regfile
+        return self.snapshot if by_via[via] else self._state.regfile
 
     def read(self, register: str, via: str | None = None) -> memoryview:
         """Register *register*'s bytes, read-only, in its declared view.
@@ -136,7 +158,7 @@ class CycleView:
     def half(self, code: int, via: str) -> int:
         """The 16-bit CR half a ``HalfCrIdx`` operand *code* names, read as
         :meth:`cr` reads the CR (ADR 0007)."""
-        return half_of(code, self.cr(code >> 1, via))
+        return half_of(code, self.source("cr", via).get_cr(code >> 1))  # self.cr, inlined
 
     def ds(self, code: int, via: str = "ds") -> DataStructure:
         """The DS the half-CR operand *code* (``via``) holds.

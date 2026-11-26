@@ -19,8 +19,7 @@ spec's operand names.
 from __future__ import annotations
 
 import inspect
-import weakref
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import NamedTuple
 
 from ipu_emu.errors import ConfigurationError, EmulatorError
@@ -228,7 +227,7 @@ def _read_code(operand_type: OperandType) -> int:
     domain (``LcrHalfIdx``, whose half names belong to no bank)."""
     if operand_type.domain.members == LCR_HALF_NAMES:
         return READ_LCR_HALF
-    return _READ_BY_BANKS.get(_banks(operand_type), READ_OTHER)
+    return _READ_BY_BANKS.get(_banks(operand_type), READ_OTHER)  # type: ignore[arg-type]
 
 
 # Read code of every operand type, from its domain in the operand-type registry.
@@ -286,7 +285,7 @@ class SlotPlan(NamedTuple):
     # From its ``read`` operands and ``implicit_reads``; a register whose
     # declared reads all share one view also has a ``(register, None)`` key.
     # ``CycleView`` serves handler reads from it (E04-12).
-    views: Mapping[tuple[str, str | None], bool]
+    views: dict[tuple[str, str | None], bool]
     # F-1: (operand name, field capacity, reserved codes) of every operand. The
     # union column can be wider than the operand type, so the capacity is the
     # type's width, not the column's.
@@ -329,7 +328,7 @@ def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, 
     checks = []
     for alias_id, match in aliases_for(slot_type, inst_name):
         imm_operand = imm_ne = None
-        co_field, co_opcodes = None, frozenset()
+        co_field, co_opcodes = None, frozenset()  # type: ignore[var-annotated]
         hardware_only = False
         vector_only = masked_window = False
         for constraint in match["where"]:
@@ -472,7 +471,7 @@ def bind_handler(instruction: Instruction) -> Callable:
     return fn
 
 
-def read_views(instruction: Instruction) -> Mapping[tuple[str, str | None], bool]:
+def read_views(instruction: Instruction) -> dict[tuple[str, str | None], bool]:
     """Every read *instruction* declares, as :attr:`SlotPlan.views` holds it.
 
     Args:
@@ -587,17 +586,23 @@ class Ipu:
         # the cycle module picks for this state (packed when prototyping).
         self.issuer = Issuer(self, resolver_for(state))
         # One VLIW word's sequencing: snapshot, slot order, idle words, the LR
-        # conflict check and the observers' hooks. The cycle gets a
-        # weak proxy: a strong back-reference would make every engine a
-        # reference cycle, keeping its state's XMEM alive until the cyclic
-        # garbage collector happens to run.
-        # So ``cycle`` works only while this Ipu is alive: hold the Ipu, or
-        # build a Cycle of your own (``Cycle(state, ipu)``).
-        self.cycle = Cycle(state, weakref.proxy(self))
+        # conflict check and the observers' hooks. The issuer and the cycle
+        # hold this engine, which holds them: close() breaks those references,
+        # so a closed engine (and its state's XMEM) is freed on release
+        # instead of waiting for the cyclic garbage collector.
+        self.cycle = Cycle(state, self)
         if bridge is not None:
             # The profiler observes this engine's cycles, and reads the snapshot
             # through this cycle (Cycle.snapshot).
             self.cycle.add_observer(bridge.observing(self.cycle))
+
+    def close(self) -> None:
+        """Release this engine: its cycle (and the IMEM write observer it
+        holds) and its issuer let go of it, so dropping the engine frees it
+        without the cyclic garbage collector. Calling it again does nothing;
+        a closed engine cannot run another word."""
+        self.cycle.close()
+        self.issuer.close()
 
     @property
     def snapshot(self) -> RegFile | None:
@@ -605,7 +610,7 @@ class Ipu:
 
         See :attr:`Cycle.snapshot`.
         """
-        return self.cycle.snapshot
+        return self.cycle.snapshot  # type: ignore[return-value]
 
     @property
     def view(self) -> CycleView:

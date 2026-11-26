@@ -92,7 +92,7 @@ def run_until_complete(
     # One engine for the whole run: it carries no per-cycle state beyond the
     # snapshot buffer it reuses, and building one per cycle was pure overhead.
     ipu = Ipu(state)
-    cycle = ipu.cycle  # works while ``ipu`` is alive, which it is for the run
+    cycle = ipu.cycle
     clock = RunClock(state, max_cycles)
     clock.begin_run(reset_stats=reset_stats)
     try:
@@ -109,6 +109,7 @@ def run_until_complete(
             raise
     finally:
         clock.end_run()
+        ipu.close()  # the run's engine is not used again
     return clock.cycles
 
 
@@ -199,4 +200,5 @@ def run_with_debug(
     finally:
         control.run_target = None
         clock.end_run()
+        ipu.close()  # the run's engine is not used again
     return clock.cycles

@@ -628,6 +628,21 @@ class TestReadAndWriteViews:
             rf.view("r_acc")[0] = 1
         assert not rf.get_r_acc_words().flags.writeable
 
+    def test_view_is_one_cached_object_that_sees_later_writes(self):
+        rf = RegFile()
+        lr = rf.view("lr")
+        assert rf.view("lr") is lr and lr.readonly
+        rf.set_lr(3, 7)  # a scalar write
+        rf.mutable("lr", 0, 4)[:] = b"\x01\x02\x03\x04"  # a mutable write
+        assert lr[12:16] == (7).to_bytes(4, "little") and lr[:4] == b"\x01\x02\x03\x04"
+        snap = rf.snapshot()  # a snapshot has its own views, of its own bytes
+        assert snap.view("lr") is not lr and snap.view("lr") == lr
+        rf.set_lr(3, 9)
+        assert snap.view("lr")[12:16] == (7).to_bytes(4, "little")
+        assert lr[12:16] == (9).to_bytes(4, "little")
+        rf.copy_into(snap)  # the reused snapshot's buffer is written in place
+        assert snap.view("lr")[12:16] == (9).to_bytes(4, "little")
+
     def test_mutable_reports_and_forgets_exactly_its_range(self):
         rf = RegFile()
         rf.mark_constant_ones("r", 0, 128)
@@ -667,3 +682,15 @@ class TestReadAndWriteViews:
         assert rf.view("r")[0] == 7
         rf.mark_constant_ones("r", 0, 128)
         assert not rf.has_constant_ones("r", 0, 128), "an escaped buffer is never trusted again"
+
+
+def test_a_custom_schema_warns_and_works_through_the_generic_methods():
+    """A compiled RegFile has no per-instance attributes: a custom schema's own
+    named accessors are not attached, and constructing one says so and names
+    the generic methods, which work."""
+    with pytest.warns(UserWarning, match="get_scalar, set_scalar"):
+        rf = RegFile(list(REGFILE_SCHEMA))
+    rf.set_scalar("lr", 3, 0x1234)
+    assert rf.get_scalar("lr", 3) == 0x1234
+    rf.set_register_bytes("r", 1, bytes(range(128)))
+    assert rf.get_register_bytes("r", 1) == bytearray(range(128))

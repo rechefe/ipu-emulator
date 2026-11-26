@@ -1,34 +1,19 @@
-"""IPU register file — fully generated from the descriptor schema.
+"""IPU register file, laid out by the descriptor schema.
 
-Every named accessor (``get_lr``, ``set_r_acc_bytes``, ``get_r_cyclic_at``, …)
-is generated at init-time from ``REGFILE_SCHEMA`` — no hand-coded per-register
-methods exist.  The generation rules are driven by four descriptor criteria:
-
-1. **is_vector** (``desc.is_vector``):
-   ``False`` → scalar integer register (LR, CR).
-   ``True``  → byte-blob register (R, R_ACC, …).
-
-2. **cyclic** (``desc.cyclic``):
-   Generates wrapping ``get_{name}_at`` / ``set_{name}_at`` accessors.
-
-3. **size_bytes** (``desc.size_bytes``):
-   Width of each element in bytes (same concept whether scalar or vector).
-
-4. **word_view** (``desc.word_view``):
-   Adds uint32 word-level accessors and uses a ``_bytes`` suffix for
-   the byte-blob accessor to disambiguate.
-
-Additionally, ``desc.count`` determines whether the byte-blob accessor
-takes an index argument (multi-element) or not (single-element).
+The named accessors (``get_lr``, ``set_r_acc_bytes``, ``get_r_cyclic_at``, ...)
+are generated from ``REGFILE_SCHEMA`` (see "Dynamic Accessor Generation"
+below for the rules) and attached to the class once; the few the emulator's
+hot path calls (``get_lr``, ``get_cr``, ...) are compiled methods of the class
+that do exactly what the generated ones do. Every register lives in one buffer
+(``ipu_emu.register_buffer``).
 """
 
 from __future__ import annotations
 
 import struct
 import warnings
-import weakref
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 import numpy as np
 
@@ -39,6 +24,7 @@ from ipu_emu.errors import (
     RegisterKindError,
     RegisterSizeError,
 )
+from ipu_emu.register_buffer import layout_of, readonly_views, slices, write
 from ipu_isa.constants import (
     CR_READ_ONLY_INITIAL_VALUES,
     CR_REGISTER_NAME,
@@ -70,6 +56,11 @@ def _check_scalar(name: str, desc: RegDescriptor) -> None:
 
 #: ``fn(name, start, size)``: register *name* bytes ``[start, start+size)`` may change.
 RegisterObserver = Callable[[str, int, int], None]
+_memoryview: Final = memoryview  # a module constant: no builtins lookup per call
+_CUSTOM_SCHEMA: Final = (
+    "a RegFile with a custom schema has no named accessors of its own (get_<register>, ...): "
+    "use get_scalar, set_scalar, get_register_bytes, set_register_bytes, view and mutable"
+)
 
 
 class RegFileReader(Protocol):
@@ -87,15 +78,12 @@ class RegFileReader(Protocol):
     def get_cr(self, index: int) -> int: ...
 
 
-def _remover(owner, fn: Callable) -> Callable[[], None]:
-    """A function that detaches *fn* from *owner*. It holds *owner* weakly, so
-    an observer that keeps its remover does not form a reference cycle."""
-    ref = weakref.ref(owner)
+def _remover(owner: RegFile, fn: Callable) -> Callable[[], None]:
+    """A function that detaches *fn* from *owner* (held until it is called:
+    an observer that keeps its remover detaches before it is dropped)."""
 
     def remove() -> None:
-        target = ref()
-        if target is not None:
-            target._observers = _without(target._observers, fn)
+        owner._observers = _without(owner._observers, fn)
 
     return remove
 
@@ -118,9 +106,58 @@ class RegFile:
     ``word_view=True`` additionally expose a NumPy uint32 view.
     """
 
+    # The default schema's accessors the hot modules call, as compiled methods.
+    # Each does what the accessor _create_accessor_methods generates for it
+    # does (the others are attached by _attach_default_accessors_to_class).
+
+    def get_lr(self, index: int) -> int:
+        if type(index) is int and 0 <= index < _LR_COUNT:
+            return _UNPACK_WORD(self._storage["lr"], index * 4)[0]
+        return self.get_scalar("lr", index)
+
+    def get_cr(self, index: int) -> int:
+        if type(index) is int and 0 <= index < _CR_COUNT:
+            return _UNPACK_WORD(self._storage["cr"], index * 4)[0]
+        return self.get_scalar("cr", index)
+
+    def set_lr(self, index: int, value: int) -> None:
+        if type(index) is int and type(value) is int and 0 <= index < _LR_COUNT:
+            self._set_word("lr", index * 4, value)
+            return
+        self.set_scalar("lr", index, value)
+
+    def set_cr(self, index: int, value: int) -> None:
+        plain = type(index) is int and type(value) is int
+        if plain and 0 <= index < _CR_COUNT and index not in CR_READ_ONLY_INITIAL_VALUES:
+            self._set_word("cr", index * 4, value)
+            return
+        self.set_scalar("cr", index, value)
+
+    def _set_word(self, name: str, offset: int, value: int) -> None:
+        observers = self._observers
+        if observers:
+            for observer in observers:
+                observer(name, offset, 4)
+        _PACK_WORD(self._storage[name], offset, value & LR_CR_SCALAR_VALUE_MASK)
+
+    def get_r_mask(self) -> bytearray:
+        return bytearray(self._storage["r_mask"])  # the generated get_r_mask
+
+    def set_r_mask(self, data: bytes | bytearray) -> None:
+        _GENERATED["set_r_mask"](self, data)
+
+    def set_r_acc_word(self, index: int, value: int) -> None:
+        _GENERATED["set_r_acc_word"](self, index, value)
+
     def __init__(self, schema: list[RegDescriptor] | None = None) -> None:
         self._schema = schema or REGFILE_SCHEMA
-        self._storage: dict[str, bytearray] = {}
+        # Every register lives in one buffer (_buffer), in schema order;
+        # _storage maps each name to its writable slice of it (_layout: the
+        # slices' byte ranges), so a whole-file copy is one buffer copy.
+        self._layout = layout_of(self._schema)
+        self._buffer = bytearray(sum(size for _, size in self._layout.values()))
+        self._storage: dict[str, memoryview] = slices(self._buffer, self._layout)
+        self._views: dict[str, memoryview] = readonly_views(self._storage)  # view()'s
         self._descriptors: dict[str, RegDescriptor] = {}
         self._alias_map: dict[str, str] = {}  # alias -> canonical name
         self._constant_one_bytes: dict[str, int] = {}
@@ -128,8 +165,6 @@ class RegFile:
         self._observers: tuple[RegisterObserver, ...] = ()
 
         for desc in self._schema:
-            total = desc.size_bytes * desc.count
-            self._storage[desc.name] = bytearray(total)
             self._descriptors[desc.name] = desc
             # register aliases
             for alias in desc.debug_aliases:
@@ -139,10 +174,9 @@ class RegFile:
         # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods).
         # The default schema attaches them to the class once; only a custom
         # schema pays for per-instance generation.
-        if self._schema is REGFILE_SCHEMA:
-            _attach_default_accessors_to_class()
-        else:
-            _attach_dynamic_accessors(self)
+        _attach_default_accessors_to_class()
+        if self._schema is not REGFILE_SCHEMA:  # (no per-instance attributes when compiled)
+            warnings.warn(_CUSTOM_SCHEMA, UserWarning, stacklevel=2)
 
         for index, value in CR_READ_ONLY_INITIAL_VALUES.items():
             self.set_scalar(
@@ -180,9 +214,9 @@ class RegFile:
     # -- byte access ----------------------------------------------------------
 
     def view(self, name: str) -> memoryview:
-        """Register *name*'s bytes, read-only: no observer is told, and
-        constant-ones provenance is kept. Writing through it raises ``TypeError``."""
-        return memoryview(self._storage[self._resolve(name)]).toreadonly()
+        """Register *name*'s bytes, read-only (a write raises ``TypeError``); no observer is
+        told, provenance is kept. One cached object, seeing later writes: never release() it."""
+        return self._views[self._alias_map.get(name, name)]
 
     def packed_bank(self, name: str) -> memoryview:
         """Scalar register bank *name* (LR or CR) as packed little-endian uint32
@@ -202,7 +236,7 @@ class RegFile:
         """Bytes ``[start, start+size)`` of register *name* (to its end when
         *size* is None), writable. Observers are told that exactly that range
         may change, and its constant-ones provenance is forgotten."""
-        canon = self._resolve(name)
+        canon = self._alias_map.get(name, name)  # self._resolve(name), inlined
         storage = self._storage[canon]
         if size is None:
             size = len(storage) - start
@@ -210,11 +244,17 @@ class RegFile:
             raise RegisterIndexError(
                 f"{canon}[{start}:{start + size}] out of range ({len(storage)} bytes)"
             )
-        self._forget_constant_ones(canon, start, size)
-        return memoryview(storage)[start : start + size]
+        for observer in self._observers:  # self._forget_constant_ones(...), inlined
+            observer(canon, start, size)
+        bits = self._constant_one_bytes
+        if canon in bits:
+            bits[canon] &= ~(((1 << size) - 1) << start)
+            if not bits[canon]:
+                del bits[canon]
+        return _memoryview(storage)[start : start + size]
 
-    def raw(self, name: str) -> bytearray:
-        """Return the ``bytearray`` backing register *name*.
+    def raw(self, name: str) -> memoryview:
+        """Return the writable view of the storage backing register *name*.
 
         Deprecated: use :meth:`view` to read and :meth:`mutable` to write. The
         whole buffer escapes, so its provenance is never trusted again.
@@ -342,7 +382,7 @@ class RegFile:
         start = index * desc.size_bytes
         end = start + desc.size_bytes
         self._forget_constant_ones(canon, start, desc.size_bytes)
-        self._storage[canon][start:end] = data
+        write(self._storage[canon], start, end, data)
 
     # -- snapshot (cycle-start copy for VLIW) -------------------------------
 
@@ -354,24 +394,21 @@ class RegFile:
         writes go to the live register file.
 
         Only the register *storage* is copied. The schema, the descriptors and
-        the alias map describe the layout rather than the state — they are
-        never mutated, so the copy shares them. This runs once per emulated
-        cycle, and ``copy.deepcopy`` spent 384 us of it walking descriptors and
-        per-instance bound accessors (73% of total emulator runtime) to produce
-        a register file that differs only in its bytes.
+        the alias map describe the layout rather than the state — never
+        mutated, so the copy shares them (``copy.deepcopy`` spent 73% of the
+        emulator's runtime walking them, for a file that differs only in bytes).
         """
-        new = object.__new__(type(self))
+        new = RegFile()  # then made a copy of this one, field by field
         new._schema = self._schema
         new._descriptors = self._descriptors
         new._alias_map = self._alias_map
         new._constant_one_bytes = self._constant_one_bytes.copy()
         new._observers = ()
         new._mutable_exports = set()
-        new._storage = {name: bytearray(buf) for name, buf in self._storage.items()}
-        if self._schema is not REGFILE_SCHEMA:
-            # A custom schema keeps its accessors on the instance, so the copy
-            # needs its own bound set (the default schema's live on the class).
-            _attach_dynamic_accessors(new)
+        new._layout = self._layout
+        new._buffer = bytearray(self._buffer)
+        new._storage = slices(new._buffer, self._layout)
+        new._views = readonly_views(new._storage)
         return new
 
     def copy_into(self, other: RegFile) -> None:
@@ -388,6 +425,11 @@ class RegFile:
             for name, bits in self._constant_one_bytes.items()
             if name not in other._mutable_exports
         }
+        if not other._observers and other._layout is self._layout:
+            # Nothing to tell (nor to attach an observer mid-copy), and the
+            # same layout: the whole file is one buffer copy.
+            other._buffer[:] = self._buffer
+            return
         for name, buf in self._storage.items():
             for observer in other._observers:
                 observer(name, 0, len(buf))
@@ -462,7 +504,7 @@ def _create_accessor_methods(schema: list[RegDescriptor]) -> dict[str, Any]:
             # ── Scalar register (LR, CR) ──────────────────────────
             # get_{name}(index) → int
             # set_{name}(index, value)
-            _add_scalar_accessors(methods, name)
+            _add_scalar_accessors(methods, name, desc, schema)
         else:
             # ── Vector (byte-blob) register ───────────────────────
             if desc.count > 1:
@@ -491,17 +533,43 @@ def _create_accessor_methods(schema: list[RegDescriptor]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _add_scalar_accessors(methods: dict, name: str) -> None:
+_UNPACK_WORD: Final = struct.Struct("<I").unpack_from
+_PACK_WORD: Final = struct.Struct("<I").pack_into
+
+
+def _add_scalar_accessors(
+    methods: dict, name: str, desc: RegDescriptor, schema: list[RegDescriptor]
+) -> None:
+    # A valid int index of a 4-byte bank reads its word directly, as get_scalar
+    # does once its checks pass; anything else (or an aliased name) takes get_scalar.
+    direct = desc.size_bytes == 4 and not any(name in d.debug_aliases for d in schema)
+    count = desc.count
+
     def _make_get(n: str = name):
         def get_val(self, index: int) -> int:
+            if direct and type(index) is int and 0 <= index < count:
+                return _UNPACK_WORD(self._storage[n], index * 4)[0]
             return self.get_scalar(n, index)
 
         get_val.__name__ = f"get_{n}"
         get_val.__doc__ = f"Get {n}[index] as a 32-bit integer."
         return get_val
 
+    # Likewise set_scalar for an int index and value of an LR or a writable CR.
+    direct_set = direct and desc.kind in (RegKind.CR, RegKind.LR)
+    read_only = CR_READ_ONLY_INITIAL_VALUES if desc.kind == RegKind.CR else {}
+
     def _make_set(n: str = name):
         def set_val(self, index: int, value: int) -> None:
+            plain = direct_set and type(index) is int and type(value) is int
+            if plain and 0 <= index < count and index not in read_only:
+                offset = index * 4
+                observers = self._observers
+                if observers:
+                    for observer in observers:
+                        observer(n, offset, 4)
+                _PACK_WORD(self._storage[n], offset, value & LR_CR_SCALAR_VALUE_MASK)
+                return
             self.set_scalar(n, index, value)
 
         set_val.__name__ = f"set_{n}"
@@ -531,7 +599,7 @@ def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> 
         def set_blob(self, data: bytes | bytearray) -> None:
             _check_size(n, data, sz)
             self._forget_constant_ones(n, 0, sz)
-            self._storage[n][:] = data
+            write(self._storage[n], 0, sz, data)
 
         set_blob.__name__ = f"set_{n}{suffix}"
         set_blob.__doc__ = f"Set {n} ({sz} bytes)."
@@ -563,7 +631,7 @@ def _add_indexed_vector_accessors(methods: dict, name: str, count: int, elem_siz
             _check_size(n, data, esz)
             start = index * esz
             self._forget_constant_ones(n, start, esz)
-            self._storage[n][start : start + esz] = data
+            write(self._storage[n], start, start + esz, data)
 
         set_elem.__name__ = f"set_{n}"
         set_elem.__doc__ = f"Set {n}[index] ({esz} bytes, {cnt} elements)."
@@ -581,17 +649,10 @@ def _add_indexed_vector_accessors(methods: dict, name: str, count: int, elem_siz
 def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     """Generate wrapping get/set accessors for a cyclic register.
 
-    ``RegFile`` has no concept of "mode", and since #180 it needs none: the two
-    cyclic rings are separate registers -- ``r_cyclic`` (512 B, 1 B/element) and
-    ``r_cyclic_wide_debug`` (2048 B, 4 B/element) -- so each wraps at its own
-    allocation. Both hold 512 *elements*; only the byte count per element
-    differs.
-
-    ``wrap_size`` predates that split, when a single 2048 B ``r_cyclic`` had to
-    wrap at 512 B in an 8-bit format and the format-aware caller (``Ipu``) supplied
-    the size on every call. It defaults to the register's full allocation
-    (``total_size``), which is now always the right answer -- nothing in
-    ``src/`` overrides it.
+    ``r_cyclic`` (512 B, 1 B/element) and ``r_cyclic_wide_debug`` (2048 B,
+    4 B/element) are separate registers, each wrapping at its own allocation
+    (#180); ``wrap_size`` defaults to that allocation, and nothing in ``src/``
+    overrides it.
     """
 
     def _make_get(n: str = name, default_sz: int = total_size):
@@ -603,7 +664,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
                 return bytearray(buf[start_idx : start_idx + length])
             first = buf[start_idx:sz]
             second = buf[: length - len(first)]
-            return bytearray(first + second)
+            return bytearray(first) + second
 
         get_at.__name__ = f"get_{n}_at"
         get_at.__doc__ = (
@@ -625,11 +686,11 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
             if length > first:
                 self._forget_constant_ones(n, 0, length - first)
             if start_idx + length <= sz:
-                buf[start_idx : start_idx + length] = data
+                write(buf, start_idx, start_idx + length, data)
             else:
                 first_len = sz - start_idx
-                buf[start_idx : start_idx + first_len] = data[:first_len]
-                buf[: length - first_len] = data[first_len:]
+                write(buf, start_idx, start_idx + first_len, data[:first_len])
+                write(buf, 0, length - first_len, data[first_len:])
 
         set_at.__name__ = f"set_{n}_at"
         set_at.__doc__ = (
@@ -704,36 +765,35 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _attach_dynamic_accessors(regfile_instance: RegFile) -> None:
-    """Attach dynamically generated accessor methods to a RegFile instance.
-
-    Called from ``__init__`` only for a **custom** schema.  The default schema
-    attaches its accessors to the class instead (see
-    ``_attach_default_accessors_to_class``), because building ~50 closures and
-    binding them per instance is pure overhead when every instance shares one
-    schema — and the emulator builds a ``RegFile`` per snapshot.
-    """
-    methods = _create_accessor_methods(regfile_instance._schema)
-    for method_name, method in methods.items():
-        setattr(
-            regfile_instance,
-            method_name,
-            method.__get__(regfile_instance, type(regfile_instance)),
-        )
-
-
 _DEFAULT_ACCESSORS_ATTACHED = False
 
 
 def _attach_default_accessors_to_class() -> None:
-    """Attach the default schema's accessors to ``RegFile`` itself, once.
-
-    Instance attachment stays available for a custom schema, and those
-    instance attributes shadow these class methods for every name they define.
-    """
+    """Attach the default schema's accessors to ``RegFile`` itself, once
+    (except those RegFile defines as compiled methods)."""
     global _DEFAULT_ACCESSORS_ATTACHED
     if _DEFAULT_ACCESSORS_ATTACHED:
         return
-    for method_name, method in _create_accessor_methods(REGFILE_SCHEMA).items():
-        setattr(RegFile, method_name, method)
+    for method_name, method in _GENERATED.items():
+        if method_name not in _COMPILED_ACCESSORS:
+            setattr(RegFile, method_name, method)
     _DEFAULT_ACCESSORS_ATTACHED = True
+
+
+def _scalar_count(name: str) -> int:
+    """The count of a default-schema 4-byte scalar bank that no alias renames:
+    what RegFile's compiled get_/set_ methods for it assume."""
+    desc = next(d for d in REGFILE_SCHEMA if d.name == name)
+    assert not desc.is_vector and desc.size_bytes == 4
+    assert not any(name in d.debug_aliases for d in REGFILE_SCHEMA)
+    return desc.count
+
+
+_LR_COUNT: Final = _scalar_count("lr")
+_CR_COUNT: Final = _scalar_count("cr")
+
+#: The default schema's generated accessors; RegFile defines these itself.
+_GENERATED: Final[dict[str, Any]] = _create_accessor_methods(REGFILE_SCHEMA)
+_COMPILED_ACCESSORS: Final = frozenset(
+    {"get_lr", "get_cr", "set_lr", "set_cr", "get_r_mask", "set_r_mask", "set_r_acc_word"}
+)

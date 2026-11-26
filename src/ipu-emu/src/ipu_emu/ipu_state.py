@@ -7,7 +7,6 @@ memory into a single object — the state an :class:`~ipu_emu.ipu.Ipu` engine ru
 from __future__ import annotations
 
 import struct
-import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
@@ -65,6 +64,15 @@ class HaltRecord:
     reason: Literal["halt", "fault"]
     pc: int
     fault: FaultId | None
+
+
+def _remover(state: IpuState, attr: str, fn: object) -> Callable[[], None]:
+    """A function that drops *fn* from the observer tuple *attr* of *state*."""
+
+    def remove() -> None:
+        setattr(state, attr, tuple(o for o in getattr(state, attr) if o is not fn))
+
+    return remove
 
 
 class IpuState:
@@ -161,6 +169,9 @@ class IpuState:
         checked = _check_format(fmt)
         self._fmt = checked
         self._codec = codec_for(checked)
+        # codec.element_bytes, kept beside it for the hot mode tests
+        # (geometry._is_wide, xmem_element_width_bytes): one attribute read.
+        self._element_bytes: int = self._codec.element_bytes
 
     @property
     def fmt(self) -> ElementFormat:
@@ -228,14 +239,7 @@ class IpuState:
         """
         self.cycle_observers = self.cycle_observers + (observer,)
         # Weak, so an observer that keeps its remover does not pin the state.
-        ref = weakref.ref(self)
-
-        def remove() -> None:
-            state = ref()
-            if state is not None:
-                state.cycle_observers = tuple(o for o in state.cycle_observers if o is not observer)
-
-        return remove
+        return _remover(self, "cycle_observers", observer)
 
     def add_fault_observer(self, fn: Callable[[HaltRecord], None]) -> Callable[[], None]:
         """Call ``fn(halt)`` each time a fault halts this state (:meth:`record_fault`).
@@ -244,14 +248,7 @@ class IpuState:
             A function that detaches it; calling it twice is harmless.
         """
         self.fault_observers = self.fault_observers + (fn,)
-        ref = weakref.ref(self)
-
-        def remove() -> None:
-            state = ref()
-            if state is not None:
-                state.fault_observers = tuple(o for o in state.fault_observers if o is not fn)
-
-        return remove
+        return _remover(self, "fault_observers", fn)
 
     def record_arith(self, events: frozenset[ArithmeticEvent]) -> None:
         """Set *events*' sticky flags and tell the arithmetic observers. An
@@ -269,14 +266,7 @@ class IpuState:
             A function that detaches it; calling it twice is harmless.
         """
         self.arith_observers = self.arith_observers + (fn,)
-        ref = weakref.ref(self)
-
-        def remove() -> None:
-            state = ref()
-            if state is not None:
-                state.arith_observers = tuple(o for o in state.arith_observers if o is not fn)
-
-        return remove
+        return _remover(self, "arith_observers", fn)
 
     def record_fault(self, fault: FaultId, pc: int) -> HaltRecord:
         """Halt on *fault* at *pc*: set its sticky flag and ``halt``, then tell

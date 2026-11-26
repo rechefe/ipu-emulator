@@ -8,6 +8,7 @@ parameter removed, a meaning changed).
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import enum
 import hashlib
@@ -512,6 +513,12 @@ def _fields(cls: type) -> dict[str, str]:
     return {f.name: str(f.type) for f in dataclasses.fields(cls)}
 
 
+#: 2.1.0 adds ReferenceModel.close(): the model's engine refers back to its
+#: state, so a model is freed on release only once closed.
+SNAPSHOTS["2.1.0"] = copy.deepcopy(SNAPSHOTS["2.0.0"])
+SNAPSHOTS["2.1.0"]["ReferenceModel"]["close"] = "(self) -> 'None'"
+
+
 def _surface() -> dict:
     model: dict[str, str] = {}
     for name, member in sorted(vars(ReferenceModel).items()):
@@ -1014,3 +1021,27 @@ def test_ctrl_c_in_a_debug_run_ends_it_as_a_quit():
     result = model.debug_run(interrupted, break_on_entry=True)
     assert result.quit and result == RunResult(Status(RunState.RUNNING, 0), 0, quit=True)
     assert model.run().quit is False and model.status.state is RunState.HALTED
+
+
+def test_a_closed_model_is_freed_on_release_and_runs_no_more():
+    """2.1.0: close() releases the engine and the commit recording, so the
+    state (and its XMEM) is freed by reference counting alone."""
+    import gc
+    import weakref
+
+    model = _model()
+    model.run()
+    xmem = weakref.ref(model._state.xmem)
+    model.close()
+    model.close()  # a second close does nothing
+    assert model.read_register("lr", 0) == 5  # registers stay readable
+    with pytest.raises(ConfigurationError, match="closed"):
+        model.reset(ElementFormat.NX8)
+        model.load_program(_words(LOOP))
+        model.run()
+    gc.disable()
+    try:
+        del model
+        assert xmem() is None
+    finally:
+        gc.enable()

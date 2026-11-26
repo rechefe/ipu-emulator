@@ -16,11 +16,13 @@ with these handlers' own operand resolution.
 
 from __future__ import annotations
 
+import struct
 from collections.abc import Mapping
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import numpy as np
+import numpy.typing as npt
 
 from ipu_emu.cr_contents import ds_active_count, ds_active_mask, mask_pad_value
 from ipu_emu.geometry import (
@@ -31,6 +33,7 @@ from ipu_emu.geometry import (
     xmem_row_size_bytes,
 )
 from ipu_emu.isa_alias_spec import VECTOR_IDENTITY_MULTS
+from ipu_emu.numerics.codecs import nx8_table32
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
@@ -67,16 +70,17 @@ SCALAR_LCR = 1  # LcrIdx: an LR selects an Ra element, or a CR is the scalar
 SCALAR_CR = 2  # CrIdx: the CR is the scalar (geometry.cr_scalar)
 
 # 0..LANES-1, for the rotated Ra and R_CYCLIC windows.
-_LANE_INDEX = np.arange(LANES)
+_LANE_INDEX: Final = np.arange(LANES)
 
 # Ra (R0 ++ R1) holds two rows of lanes. The R_CYCLIC ring holds 512 elements
 # in every element width: ``r_cyclic`` is its 1-byte-element form.
-_RA_LANES = 2 * LANES
-_RING_LANES = _reg_sizes["r_cyclic"]["size_bytes"]
+_RA_LANES: Final = 2 * LANES
+_RING_LANES: Final[int] = _reg_sizes["r_cyclic"]["size_bytes"]
+_RING_ROWS: Final[int] = _RING_LANES // LANES
 
 # One R_MASK slot (128 bits) with every lane active.
-_ALL_ONES_MASK_SLOT = b"\xff" * 16
-_ALL_ONES_MASK_INT = (1 << LANES) - 1
+_ALL_ONES_MASK_SLOT: Final = b"\xff" * 16
+_ALL_ONES_MASK_INT: Final = (1 << LANES) - 1
 
 
 @lru_cache(maxsize=512)
@@ -111,7 +115,9 @@ def _active_lane_count(mask_int: int, ds_active: int) -> int:
 
 
 #: Bytes of one row-metadata word in ``r_meta`` / ``r_cyclic_meta``.
-_META_BYTES = 2
+_META_BYTES: Final = 2
+_F32_VALUE: Final = struct.Struct("<f").unpack_from
+_META_WORD: Final = struct.Struct("<H").unpack_from  # a little-endian metadata word
 
 
 def _qf(ipu: Ipu, qf: int) -> Nx8Format | None:
@@ -152,7 +158,9 @@ def _ra_row(ipu: Ipu, codec: LaneCodec, ra: bytearray, nx8: Nx8Format | None) ->
     """The resolved ``ra`` operand (R0 or R1's bytes), decoded with that register's metadata."""
     if nx8 is None:
         return codec.decode(ra)
-    index = _MULT_STAGE_MAP[ipu.issuer.current.encoded["ra"]][1]
+    current = ipu.issuer.current
+    assert current is not None
+    index = _MULT_STAGE_MAP[current.encoded["ra"]][1]
     return codec.decode(ra, LANES, nx8, _metadata(ipu, "r_meta", index))
 
 
@@ -174,6 +182,43 @@ def _r_cyclic_window(ipu: Ipu, codec: LaneCodec, rc_idx: int, nx8: Nx8Format | N
     return ring[(start + _LANE_INDEX) % _RING_LANES]
 
 
+def _r_cyclic_window32(
+    ipu: Ipu, codec: LaneCodec, rc_idx: int, nx8: Nx8Format | None
+) -> npt.NDArray[np.float32]:
+    """:func:`_r_cyclic_window` as float32 (the same values).
+
+    The window's LANES elements come from at most two of the ring's rows (the
+    one *rc_idx* falls in and the next, wrapping): only those are decoded,
+    each with its own row's metadata in NX8, which is what decoding the whole
+    ring and indexing it gives.
+    """
+    start = rc_idx % _RING_LANES
+    buf = ipu.view.read(vector_registers(ipu.state).r_cyclic)
+    step = LANES * codec.element_bytes
+    row, offset = divmod(start, LANES)
+    if nx8 is None:
+        if start + LANES <= _RING_LANES:
+            return codec.decode32(buf[start * codec.element_bytes :], LANES)
+        first = codec.decode32(buf[row * step :], LANES)
+        second = codec.decode32(buf, LANES)  # the window wraps to the ring's first row
+        return np.concatenate((first[offset:], second[:offset]))
+    meta = ipu.view.read("r_cyclic_meta")  # each row's word, as _metadata reads it
+    row_meta: int = _META_WORD(meta, row * _META_BYTES)[0]
+    first = codec.decode32(buf[row * step :], LANES, nx8, row_meta)
+    if not offset:
+        return first
+    after = (row + 1) % _RING_ROWS
+    after_meta: int = _META_WORD(meta, after * _META_BYTES)[0]
+    second = codec.decode32(buf[after * step :], LANES, nx8, after_meta)
+    return np.concatenate((first[offset:], second[:offset]))
+
+
+def _store_mult_res32(ipu: Ipu, product: npt.NDArray[np.float32]) -> None:
+    """:func:`_store_mult_res` for float32 products (no rounding left to do)."""
+    raw = product.tobytes()
+    ipu.state.regfile.mutable("mult_res")[: len(raw)] = raw
+
+
 def _store_mult_res(ipu: Ipu, codec: LaneCodec, product: Lanes) -> None:
     """Write LANES products to MULT_RES, rounded once to the accumulator type.
 
@@ -189,7 +234,7 @@ def _store_mult_res(ipu: Ipu, codec: LaneCodec, product: Lanes) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> None:
+def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> bool:
     """Apply sequential shift-and-AND mask generation, then gate mult_res.
 
     ``shift`` is interpreted as ``mask_shift_idx`` ∈ [−3, +3] (clamped).
@@ -217,10 +262,17 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> None:
         # as the multiply wrote it. The hardware still applies the mask.
         # Lane statistics are still recorded: prototyping mode is only
         # allowed to skip work, never to change what a run reports.
-        slot = (mask_idx % (LANES // 16)) * 16
-        if view.read("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT:
+        facts = ipu.issuer.current
+        if facts is not None and facts.mask is not None:
+            # The mask the issue step read for this op, from the same R_MASK
+            # view with nothing written since: unshifted, it is the slot itself.
+            all_ones = facts.mask == _ALL_ONES_MASK_INT
+        else:
+            slot = (mask_idx % (LANES // 16)) * 16
+            all_ones = view.read("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT
+        if all_ones:
             _count_mult_lanes(ipu, _ALL_ONES_MASK_INT, ds_value)
-            return
+            return False
 
     shape = view.ds(ds)
     facts = ipu.issuer.current
@@ -232,9 +284,10 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, ds: int) -> None:
 
     inactive = _inactive_lanes(mask_int)
     if not inactive.size:
-        return
+        return False
     pad = np.array(mask_pad_value(shape), dtype="<f4").view("<u4")
     np.frombuffer(ipu.state.regfile.mutable("mult_res"), dtype="<u4")[inactive] = pad
+    return True
 
 
 def _count_mult_lanes(ipu: Ipu, mask_int: int, ds_value: int) -> None:
@@ -336,8 +389,23 @@ def _mult_resolve_lcr_scalar(
     *via*, Ra as ``r``).
     """
     if src < LR_REG_COUNT:
-        # The LR holds an INDEX into Ra; the Ra DATA is a separate read.
-        return _ra_lanes(ipu, codec, nx8)[ipu.view.lr(src, via) % _RA_LANES]
+        # The LR holds an INDEX into Ra; the Ra DATA is a separate read. Only
+        # the selected element is decoded: the value _ra_lanes(...)[k] has,
+        # after the same reads in the same order (Ra, its two metadata words, the LR).
+        view = ipu.view
+        buf = view.read(vector_registers(ipu.state).ra)
+        if nx8 is None:
+            k = view.lr(src, via) % _RA_LANES
+            if codec.element_bytes == 4:  # FP32: the element's value, as decode() widens it
+                return _F32_VALUE(buf, k * 4)[0]
+            return codec.decode(buf[k * codec.element_bytes :], 1)[0]
+        meta = view.read("r_meta")  # both rows' words, as _metadata reads them
+        k = view.lr(src, via) % _RA_LANES
+        metadata: int = _META_WORD(meta, (k // LANES) * _META_BYTES)[0]
+        if codec.element_bytes == 1:  # NX8: decode() is a table lookup of the element's code
+            # (the float32 table: the same value, as np.float32, which mult32 takes as is)
+            return nx8_table32(nx8, metadata)[buf[k]]
+        return codec.decode(buf[k * codec.element_bytes :], 1, nx8, metadata)[0]
     cr_idx = src - LR_REG_COUNT
     return cr_scalar(ipu.state, cr_idx, ipu.view.cr(cr_idx, via))
 
@@ -360,9 +428,17 @@ def execute_mult_rc_ve(  # noqa: PLR0913 -- one keyword per spec operand (instru
     codec = ipu.codec
     nx8 = _qf(ipu, qf)
     scalar = _mult_resolve_lcr_scalar(ipu, codec, src, nx8)
-    rc = _r_cyclic_window(ipu, codec, rc_idx, nx8)
-    _store_mult_res(ipu, codec, codec.mult(rc, scalar))
-    _mult_mask_and_shift(ipu, mask_offset, mask_shift, ds)
+    # In float32 when that stores the same bytes (LaneCodec.mult32), else in float64.
+    product32 = codec.mult32(_r_cyclic_window32(ipu, codec, rc_idx, nx8), scalar)
+    if product32 is not None:
+        _store_mult_res32(ipu, product32)
+    else:
+        rc = _r_cyclic_window(ipu, codec, rc_idx, nx8)
+        _store_mult_res(ipu, codec, codec.mult(rc, scalar))
+    if not _mult_mask_and_shift(ipu, mask_offset, mask_shift, ds) and product32 is not None:
+        # MULT_RES holds exactly these lanes: an ACC in the same word may use
+        # them instead of decoding MULT_RES again (Issuer.mult_product).
+        ipu.issuer.mult_product = product32
 
 
 def execute_mult_rc_vs(
