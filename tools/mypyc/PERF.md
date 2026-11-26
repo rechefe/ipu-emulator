@@ -18,33 +18,33 @@ pure, with the same fingerprints as before the branch (`a75173d8`, `0973b50f`,
   Absolute rates are low because those cores are contended.
 - **Pure:** the original pure-Python fast path (`mypyc-build`'s sources,
   uncompiled), 7.4k-8.2k cycles/s on these CPUs.
-- **Live build:** the compiled `mypyc-build` (`df9e6396`), 1.19x pure.
+- **Live build:** the compiled `mypyc-build` (`b350178f`), 1.19x pure.
 
 ## Increments
 
 | Commit | Change | Gain over the previous | vs pure |
 |---|---|---|---|
-| `b772d10c` `d3734ff2` | per-op read steps in the resolver; float32 ACC/MULT while every lane is finite | | 1.59x |
-| `2ecd9ff4` `3ed45d6f` | one Ra element for an LR scalar; `Final` constants, fewer generic lookups | | |
-| `aa11ec90` | resolver views, alias fast path, buffer pairs | | 1.75x |
-| `9f804b6e` `adcefdff` | cheaper float32 checks; element width read once per state | +8% | 1.89x |
-| `b0ae5277` | `RegFile.mutable` without a method call | +2% | |
-| `6cf2205e` | single-buffer `RegFile` (snapshot copy is one memcpy) | +8.7% | 2.13x |
-| `c3c1da71` | fused MULT.RC.VE -> ACC hand-over of the float32 product | +2.6% | 2.12x* |
-| `f74cef97` | native `Ipu` and `Cycle`, explicit close | +9.1% | |
-| `2a228ec2` | native `IpuState` | +6.0% | |
-| `b75047e3` | NX8 MULT window decodes only the ring rows it covers | +5.3% (NX8 alone +33%) | 2.58x |
-| `a795b1dd` | resolver: native step objects, LR/CR views as a tuple | +5.2% | 2.75x |
-| `c4c4bc67` | native `RegFile` | +13.7% | **3.0x** |
+| `2fadfd88` `256ff3ea` | per-op read steps in the resolver; float32 ACC/MULT while every lane is finite | | 1.59x |
+| `154800a6` `44ee7a2f` | one Ra element for an LR scalar; `Final` constants, fewer generic lookups | | |
+| `4f520c6a` | resolver views, alias fast path, buffer pairs | | 1.75x |
+| `60064fad` `359cd69b` | cheaper float32 checks; element width read once per state | +8% | 1.89x |
+| `b4eb0dae` | `RegFile.mutable` without a method call | +2% | |
+| `01b73782` | single-buffer `RegFile` (snapshot copy is one memcpy) | +8.7% | 2.13x |
+| `eec14098` | fused MULT.RC.VE -> ACC hand-over of the float32 product | +2.6% | 2.12x* |
+| `18948e97` | native `Ipu` and `Cycle`, explicit close | +9.1% | |
+| `2dec7275` | native `IpuState` | +6.0% | |
+| `3d389361` | NX8 MULT window decodes only the ring rows it covers | +5.3% (NX8 alone +33%) | 2.58x |
+| `0c116f56` | resolver: native step objects, LR/CR views as a tuple | +5.2% | 2.75x |
+| `90344e69` | native `RegFile` | +13.7% | **3.0x** |
 
 \* The ratios in the "vs pure" column come from different measurement sets, so
 neighbouring rows are not strictly comparable. The final check measured
-`c4c4bc67` against pure back to back, 3 rounds on each of two CPUs: 2.92x to
+`90344e69` against pure back to back, 3 rounds on each of two CPUs: 2.92x to
 3.13x per round, 3.02x on average.
 
 ## Behaviour changes
 
-- **Explicit close** (`f74cef97`, `2a228ec2`). mypyc cannot weakly reference a
+- **Explicit close** (`18948e97`, `2dec7275`). mypyc cannot weakly reference a
   native class, so the weak references between the engine objects became strong
   ones that `close()` breaks:
   - `Ipu.close()` and `Cycle.close()` remove the IMEM write observer and release
@@ -58,14 +58,14 @@ neighbouring rows are not strictly comparable. The final check measured
   - An alias profile holds its state until it is detached.
   - Without close, the engine and its state wait for the cyclic garbage
     collector.
-- **`RegFile.raw()` returns a view** (`6cf2205e`). The deprecated `raw()` now
+- **`RegFile.raw()` returns a view** (`01b73782`). The deprecated `raw()` now
   returns the register's writable `memoryview` instead of a `bytearray`: the
   same bytes, and writes through it still reach the register.
-- **`RegisterSizeError`** (`6cf2205e`). Setter data whose size would have resized
+- **`RegisterSizeError`** (`01b73782`). Setter data whose size would have resized
   a register's storage now raises `RegisterSizeError`; before, it silently
   changed the register layout. Writes otherwise convert or refuse data exactly
   as a `bytearray` slice assignment did.
-- **Native `RegFile` with a custom-schema warning** (`c4c4bc67`). A compiled
+- **Native `RegFile` with a custom-schema warning** (`90344e69`). A compiled
   `RegFile` has no per-instance attributes, so a custom schema's named accessors
   are not attached. Building one warns (`UserWarning`) and names the generic
   methods: `get_scalar`, `set_scalar`, `get_register_bytes`,
@@ -110,5 +110,5 @@ collector off:
 
 | Build | Growth |
 |---|---|
-| before `f74cef97` | +57 MB (each run's model waited in reference cycles) |
-| after, and on `c4c4bc67` | +6.4 MB |
+| before `18948e97` | +57 MB (each run's model waited in reference cycles) |
+| after, and on `90344e69` | +6.4 MB |
