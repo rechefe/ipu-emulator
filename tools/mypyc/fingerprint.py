@@ -55,7 +55,9 @@ def fingerprint(spec: str) -> str:
         context.model.run(context.cycle_limit)
         out["model"] = context.model
 
-    result = run_kernel(manifest, case, element, RunOptions(executor=execute), cache=AssemblyCache())
+    result = run_kernel(
+        manifest, case, element, RunOptions(executor=execute), cache=AssemblyCache()
+    )
     state = out["model"]._state
     h = hashlib.sha256()
     h.update(repr(state.regfile.to_dict()).encode())

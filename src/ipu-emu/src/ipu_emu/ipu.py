@@ -19,7 +19,7 @@ spec's operand names.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import NamedTuple
 
 from ipu_emu.errors import ConfigurationError, EmulatorError

@@ -59,7 +59,7 @@ from ipu_isa.slots import Slot
 from ipu_isa.timing import SLOT_EXECUTION_ORDER
 
 if TYPE_CHECKING:
-    from ipu_emu.ipu import Ipu, SlotPlan
+    from ipu_emu.ipu import SlotPlan
     from ipu_emu.ipu_state import IpuState
     from ipu_emu.issue import IssueFacts
     from ipu_emu.regfile import RegFile, RegFileReader

@@ -145,6 +145,8 @@ _F32_BYTES: Final = struct.Struct("<f")
 def _as_float32(value: float) -> float:
     """*value* rounded to float32 (as a Python float); ``OverflowError`` beyond its range."""
     return _F32_BYTES.unpack(_F32_BYTES.pack(value))[0]
+
+
 _LANES: Final = LANES
 _OVERFLOW: Final = frozenset({ArithmeticEvent.ACC_OVERFLOW})
 

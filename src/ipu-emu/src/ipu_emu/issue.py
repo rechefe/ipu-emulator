@@ -111,7 +111,15 @@ class Issuer:
             (:mod:`ipu_emu.resolver`).
     """
 
-    __slots__ = ("_ipu", "_resolve", "_view", "current", "mult_product", "observers", "prior_product")
+    __slots__ = (
+        "_ipu",
+        "_resolve",
+        "_view",
+        "current",
+        "mult_product",
+        "observers",
+        "prior_product",
+    )
 
     def __init__(self, ipu: Ipu, resolver: OperandResolver) -> None:
         # The engine, held until close() (Ipu.close): an engine and its
@@ -194,7 +202,10 @@ class Issuer:
             identity = _MULT_IDENTITIES[
                 bool(plan.scalar_kind)
                 and mult.scalar_is_one(
-                    ipu, plan.scalar_kind, operands[plan.scalar_operand], plan.scalar_operand  # type: ignore[index, arg-type]
+                    ipu,
+                    plan.scalar_kind,
+                    operands[plan.scalar_operand],  # type: ignore[index]
+                    plan.scalar_operand,  # type: ignore[arg-type]
                 ),
                 mult.vector_is_one(ipu, plan.inst_name, operands, encoded),
             ]

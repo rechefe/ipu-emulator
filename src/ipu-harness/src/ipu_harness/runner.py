@@ -676,7 +676,13 @@ def run_kernel(
     else:
         ran = _run_staged_kernel(manifest, case, fmt, options, cache, shared)
     try:
-        plan, inputs, placement, model, run = ran.plan, ran.inputs, ran.placement, ran.model, ran.run
+        plan, inputs, placement, model, run = (
+            ran.plan,
+            ran.inputs,
+            ran.placement,
+            ran.model,
+            ran.run,
+        )
         tensors = plan.manifest.tensors
         if run is None:  # the user quit the debugger: no result
             return RunResult(
@@ -716,7 +722,9 @@ def run_kernel(
         comparisons: tuple[Comparison, ...] = ()
         if run.status.state is RunState.FAULTED:
             assert run.status.fault is not None  # a faulted status names its fault
-            fault = RunFault(run.status.fault, run.status.pc, _source_line(ran.rendered, run.status.pc))
+            fault = RunFault(
+                run.status.fault, run.status.pc, _source_line(ran.rendered, run.status.pc)
+            )
         elif shared is None or shared.check:
             golden = _goldens(case, plan, inputs)
             comparisons = tuple(

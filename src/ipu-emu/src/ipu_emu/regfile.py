@@ -18,13 +18,13 @@ from typing import Any, Final, Protocol
 import numpy as np
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegKind
-from ipu_emu.register_buffer import layout_of, readonly_views, slices, write
 from ipu_emu.errors import (
     EmulatorError,
     RegisterIndexError,
     RegisterKindError,
     RegisterSizeError,
 )
+from ipu_emu.register_buffer import layout_of, readonly_views, slices, write
 from ipu_isa.constants import (
     CR_READ_ONLY_INITIAL_VALUES,
     CR_REGISTER_NAME,

@@ -29,8 +29,8 @@ from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from ipu_emu.errors import EmulatorError
 from ipu_emu.geometry import WIDE_REGISTERS
-from ipu_isa.errors import IsaValueError
 from ipu_isa.cr_halves import LcrHalf, lcr_half_code, lcr_half_value
+from ipu_isa.errors import IsaValueError
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
 if TYPE_CHECKING:
@@ -173,6 +173,7 @@ _STEP_WORD: Final = 0
 _STEP_HALF: Final = 1
 _STEP_MULT: Final = 2
 
+
 class _Step:
     """One read of a decoded op (a native object: no tuple unpacking per read)."""
 
@@ -204,6 +205,33 @@ class _Steps:
         self.steps = steps
 
 
+def _read_step(name: str, snap: bool, code: int, raw: int) -> tuple[bool, _Step | None]:
+    """One read as a step: ``(True, step)``; ``(True, None)`` for a read code
+    whose field passes through, as resolve() does; ``(False, None)`` when it
+    needs the general path (an index the packed banks cannot serve, a code
+    that is not an ``LcrHalfIdx`` register)."""
+    if code == READ_LCR:
+        if raw < LR_REG_COUNT:
+            code = READ_LR
+        else:
+            code, raw = READ_CR, raw - LR_REG_COUNT
+    if code == READ_LR or code == READ_CR:
+        if not 0 <= raw < _BANK_COUNT[code]:
+            return False, None
+        return True, _Step(name, snap, _STEP_WORD, code, raw * 4, None)
+    if code == READ_LCR_HALF:
+        operand = _LCR_HALVES.get(raw)
+        if operand is None:
+            return False, None
+        bank = READ_LR if operand.bank == "lr" else READ_CR
+        if operand.bank not in ("lr", "cr") or not 0 <= operand.index < _BANK_COUNT[bank]:
+            return False, None
+        return True, _Step(name, snap, _STEP_HALF, bank, operand.index * 4, operand)
+    if code == READ_MULT_STAGE:
+        return True, _Step(name, snap, _STEP_MULT, 0, raw, None)
+    return True, None  # any other read code passes the field through
+
+
 def _read_steps(plan: SlotPlan, encoded: Mapping[str, int]) -> tuple[_Step, ...] | None:
     """The reads of (plan, encoded) as steps, or ``None`` when any of them needs
     the general path (an index the packed banks cannot serve, a code that is not
@@ -219,29 +247,11 @@ def _read_steps(plan: SlotPlan, encoded: Mapping[str, int]) -> tuple[_Step, ...]
         raw_value: object = encoded[name]
         if type(raw_value) is not int:
             return None
-        raw: int = encoded[name]
-        code = read.code
-        snap = bool(read.from_snapshot)
-        if code == READ_LCR:
-            if raw < LR_REG_COUNT:
-                code = READ_LR
-            else:
-                code, raw = READ_CR, raw - LR_REG_COUNT
-        if code == READ_LR or code == READ_CR:
-            if not 0 <= raw < _BANK_COUNT[code]:
-                return None
-            steps.append(_Step(name, snap, _STEP_WORD, code, raw * 4, None))
-        elif code == READ_LCR_HALF:
-            operand = _LCR_HALVES.get(raw)
-            if operand is None:
-                return None
-            bank = READ_LR if operand.bank == "lr" else READ_CR
-            if operand.bank not in ("lr", "cr") or not 0 <= operand.index < _BANK_COUNT[bank]:
-                return None
-            steps.append(_Step(name, snap, _STEP_HALF, bank, operand.index * 4, operand))
-        elif code == READ_MULT_STAGE:
-            steps.append(_Step(name, snap, _STEP_MULT, 0, raw, None))
-        # any other read code passes the field through, as resolve() does
+        ok, step = _read_step(name, bool(read.from_snapshot), read.code, encoded[name])
+        if not ok:
+            return None
+        if step is not None:
+            steps.append(step)
     return tuple(steps)
 
 
@@ -292,6 +302,16 @@ class PackedResolver:
             self._banks[id(source)] = entry
         return entry[1]
 
+    def _steps_of(self, plan: SlotPlan, encoded: Mapping[str, int]) -> tuple[_Step, ...] | None:
+        """The read steps of (plan, encoded), decoded once per encoded-operand dict."""
+        entry = self._steps.get(id(encoded))
+        if entry is None or entry.encoded is not encoded or entry.plan is not plan:
+            if len(self._steps) >= 1 << 16:
+                self._steps.clear()
+            entry = _Steps(encoded, plan, _read_steps(plan, encoded))
+            self._steps[id(encoded)] = entry
+        return entry.steps
+
     def resolve(
         self, plan: SlotPlan, encoded: Mapping[str, int], snapshot: RegFile
     ) -> dict[str, Any]:
@@ -301,13 +321,7 @@ class PackedResolver:
         encoded-operand dict); only the register reads run per call. An op the
         steps cannot serve takes :meth:`_resolve_general`, the same result.
         """
-        entry = self._steps.get(id(encoded))
-        if entry is None or entry.encoded is not encoded or entry.plan is not plan:
-            if len(self._steps) >= 1 << 16:
-                self._steps.clear()
-            entry = _Steps(encoded, plan, _read_steps(plan, encoded))
-            self._steps[id(encoded)] = entry
-        steps = entry.steps
+        steps = self._steps_of(plan, encoded)
         if steps is None:
             return self._resolve_general(plan, encoded, snapshot)
         operands: dict[str, Any] = dict(encoded)
