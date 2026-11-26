@@ -48,7 +48,8 @@ py_library(
     name = "ipu_emu_lib",
     srcs = glob(["src/ipu_emu/**/*.py"]) + [":build_flags"],
     imports = ["src"],
-    # The ISA, numpy and the standard library only: the assembler and the
+    # The ISA, numpy, mypy_extensions (the @mypyc_attr markers the mypyc build
+    # reads; a no-op when run as Python) and the standard library only: the assembler and the
     # debugger build on the emulator, never the other way (E04-18).
     deps = [
         "//src/ipu-isa:ipu_isa_lib",

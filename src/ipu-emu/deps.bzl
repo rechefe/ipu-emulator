@@ -5,4 +5,4 @@ packages (`ipu-*`); `//tools:test_deps_consistency` checks it. Test and docs
 packages belong on the test and docs targets, not here.
 """
 
-RUNTIME_DEPS = ["numpy"]
+RUNTIME_DEPS = ["mypy_extensions", "numpy"]
