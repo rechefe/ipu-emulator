@@ -21,6 +21,7 @@ from ipu_debug.control import DebugControl, validate_pc
 from ipu_debug.errors import DebugError
 from ipu_debug.stores import AaqRow, last_aaq_row, track_aaq_stores
 from ipu_emu.errors import EmulatorError
+from ipu_emu.geometry import table_row, table_row_check
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import METADATA_UNIT_BYTES, XMEM_SIZE_BYTES
@@ -279,6 +280,22 @@ def _resolve_address_term(state: IpuState, token: str) -> int:
     return state.regfile.get_scalar(desc.name, index)
 
 
+def _table_address(state: IpuState, mode: str, table: int, offset: int) -> int:
+    """The row (row mode) or byte (byte mode) that a table ID and an offset name.
+
+    A table set is bound, so the CR holds a table ID, not a row. The emulator's
+    rule decides (:func:`ipu_emu.geometry.table_row_check`): an unbound ID, or
+    an offset outside the table, is refused as the emulator faults it F-6. In
+    byte mode the offset is in bytes and the table starts at its first row's
+    first byte.
+    """
+    unit = xmem_row_size_bytes(state) if mode == "byte" else 1
+    fault = table_row_check(state, table, offset // unit)
+    if fault is not None:
+        raise DebugError(fault[1])
+    return table_row(state, table, 0) * unit + offset
+
+
 def resolve_xmem_address(
     state: IpuState, mode: str, base_token: str, offset_token: str
 ) -> tuple[int, dict[str, int | str]]:
@@ -288,10 +305,11 @@ def resolve_xmem_address(
         raise DebugError("XMEM address mode must be 'row' or 'byte'")
 
     base = _resolve_address_term(state, base_token)
-    table = state.table_map.get(base) if state.table_map is not None else None
-    if table is not None and base_token.lower().startswith("cr"):
-        base = table[0]  # a table set is bound: the CR holds a table ID, not a row
-    effective = base + _resolve_address_term(state, offset_token)
+    offset = _resolve_address_term(state, offset_token)
+    if state.table_map is not None and base_token.lower().startswith("cr"):
+        effective = _table_address(state, mode, base, offset)
+    else:
+        effective = base + offset
     if effective < 0:
         raise DebugError(f"XMEM {mode} address must be non-negative; got {effective}")
 
