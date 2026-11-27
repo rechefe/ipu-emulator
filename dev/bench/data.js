@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795697872040,
+  "lastUpdate": 1795781865124,
   "repoUrl": "https://github.com/rechefe/ipu-emulator",
   "entries": {
     "Times and memory (smaller is better)": [
@@ -2296,6 +2296,112 @@ window.BENCHMARK_DATA = {
             "value": 6855,
             "unit": "s",
             "extra": "nightly run 45806495035; whole job 6896 s"
+          },
+          {
+            "name": "ci/default_tier_wall_s",
+            "value": 228,
+            "unit": "s",
+            "extra": "ci run 42634927582; whole job 245 s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eyal Rechef",
+            "username": "rechefe",
+            "email": "103856782+rechefe@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4ebd3918f89cf709047a0ccdfec9499262296ca6",
+          "message": "Merge pull request #296 from rechefe/crm-cache\n\nCrm cache",
+          "timestamp": "2026-11-09T14:27:50Z",
+          "url": "https://github.com/rechefe/ipu-emulator/commit/4ebd3918f89cf709047a0ccdfec9499262296ca6"
+        },
+        "date": 1795781864283,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "assemble/all_kernels",
+            "value": 0.93685,
+            "unit": "s",
+            "extra": "files=129 words=8240"
+          },
+          {
+            "name": "assemble/render_s",
+            "value": 0.00687,
+            "unit": "s",
+            "extra": "files=132 words=8266"
+          },
+          {
+            "name": "assemble/parse_s",
+            "value": 0.966005,
+            "unit": "s",
+            "extra": "files=132 words=8266"
+          },
+          {
+            "name": "assemble/encode_s",
+            "value": 0.326226,
+            "unit": "s",
+            "extra": "files=132 words=8266"
+          },
+          {
+            "name": "emulator/ipu_state_construct_ms",
+            "value": 0.045507,
+            "unit": "ms",
+            "extra": "IpuState(), mean of 20"
+          },
+          {
+            "name": "emulator/ipu_state_tracemalloc_peak_mb",
+            "value": 0.06123,
+            "unit": "MB",
+            "extra": "the first IpuState() in a fresh interpreter"
+          },
+          {
+            "name": "emulator/ipu_state_rss_delta_mb",
+            "value": 0,
+            "unit": "MB",
+            "extra": "the first IpuState() in a fresh interpreter"
+          },
+          {
+            "name": "import/ipu_as",
+            "value": 0.161027,
+            "unit": "s",
+            "extra": "import ipu_as.lark_tree; best of 5; interpreter startup 0.022 s"
+          },
+          {
+            "name": "import/ipu_emu",
+            "value": 0.189491,
+            "unit": "s",
+            "extra": "import ipu_emu; best of 5; interpreter startup 0.022 s"
+          },
+          {
+            "name": "import/ipu_harness",
+            "value": 0.311611,
+            "unit": "s",
+            "extra": "import ipu_harness.runner; best of 5; interpreter startup 0.022 s"
+          },
+          {
+            "name": "kernel/identity/peak_rss_mb",
+            "value": 234.929688,
+            "unit": "MB",
+            "extra": "default case; cycles=17 run=0.002 s"
+          },
+          {
+            "name": "kernel/matmul_720x240_x128/peak_rss_mb",
+            "value": 244.3125,
+            "unit": "MB",
+            "extra": "default case; cycles=179281 run=39.414 s"
+          },
+          {
+            "name": "ci/full_suite_wall_s",
+            "value": 4502,
+            "unit": "s",
+            "extra": "nightly run 45986544078; whole job 4533 s"
           },
           {
             "name": "ci/default_tier_wall_s",
