@@ -13,6 +13,10 @@ row_address = {table_id, offset}   // table_id = CR[base][3:0]; offset = LR[offs
 
 The row address is the table ID, then the offset in that table. It is a concatenation, not a sum, so the table ID takes the top 4 bits of the 24-bit address.
 
+### Table IDs in the harness and the emulator
+
+The hardware maps each table ID to the banks that hold the table. The reference model plays that part when a table set is bound (`ReferenceModel.bind_tables`, API 2.2.0): ID to the first row and the row count of the table, and an access to an ID that is not bound, or past the table's rows, faults F-6. With no set bound a CR holds a flat row (the conformance suite runs that way). The kernel harness binds a set at every kernel start, each stage and each chain step: every tensor that `kernel.toml` binds to a CR (`[abi]`, or a stage's table) is a table, and its CR holds the ID the harness gave it. A *free* table's CR is written at launch and its ID is the harness's to choose, so a program never reads it as a number; a *pinned* table is on a hardwired CR (`CR0` is table 0). A tensor keeps one ID across the stages of a kernel; across the steps of a chain a buffer keeps its ID or is retagged, the rows never moving, and a buffer a kernel wrote is never handed to a pinned table (the host copies it).
+
 | Field | Bits | Meaning |
 |---|---|---|
 | `table_id` | 4 | Table that holds the array. `CR[base][3:0]`: the 24-bit row address starts with it. |

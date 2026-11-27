@@ -14,6 +14,7 @@ from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
 from ipu_harness.params import PlanError
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_harness.variants import variant
+from ipu_isa.faults import FaultId
 
 FP32 = variant("fp32")
 
@@ -57,8 +58,7 @@ def test_a_matching_declaration_has_no_finding(tmp_path):
 def test_a_region_left_undeclared_is_an_access_through_no_table(tmp_path):
     result = _run(_kernel(tmp_path, "[tables]\nx = {}\n"))
     assert _messages(result) == [
-        "error: CR3: 4 accesses through CR3, which no declared table is reached through "
-        "(rows 4..7, in ['y'])"
+        "error: CR3: 4 accesses through CR3, which names no declared table (rows 4..7, in ['y'])"
     ]
 
 
@@ -68,13 +68,12 @@ def test_other_repetitions_than_declared_fail(tmp_path):
     assert message.startswith("error: x: 1 repetitions, declared 2")
 
 
-def test_an_access_past_the_rows_needs_overhead_rows(tmp_path):
+def test_an_access_past_the_rows_faults_unless_overhead_rows_cover_it(tmp_path):
+    """The table the program runs with ends at its rows and overhead rows (F-6)."""
     result = _run(_kernel(tmp_path, "[tables]\nx = {}\ny = {}\n", asm=PREFETCH_ASM))
-    (message,) = _messages(result)
-    assert message.startswith(
-        "error: x: 1 accesses outside rows=4 + overhead_rows=0; "
-        "covering them takes overhead_rows=1; row 4 at cycle"
-    )
+    assert not result.passed
+    assert result.fault is not None and result.fault.fault is FaultId.F6
+    assert result.fault.line is not None and result.fault.line.startswith("LD.MULT R0 LR1 CR2")
 
 
 def test_overhead_rows_are_reserved_and_checked_as_the_tables(tmp_path):
@@ -122,7 +121,7 @@ def test_tables_from_a_python_hook(tmp_path):
         ("[tables]\nz = {}\n", "a table is a region; 'z' is no tensor"),
         ("[tables]\nrows = {}\n", "a table is a region; 'rows' is no tensor"),
         ("[tables]\nx = { whole_run = true, repetitions = 2 }\n", "takes no repetitions"),
-        ('[tables]\nx = { also_via = ["s"] }\n', "does not read base(x)"),
+        ('[tables]\nx = { also_via = ["s"] }\n', "unknown key 'also_via' in [tables.x]"),
         ('[tables]\nx = { jump_back = "nope" }\n', "names no parameter"),
         ("[tables]\nx = { rows = 4 }\n", "rows"),
     ],
@@ -242,7 +241,7 @@ def test_a_region_a_stage_leaves_undeclared_is_an_access_through_no_table(tmp_pa
     )
     assert result.tables is not None
     assert [f.describe() for f in result.tables.errors] == [
-        "error: CR3: stage2: 3 accesses through CR3, which no declared table is reached through "
+        "error: CR3: stage2: 3 accesses through CR3, which names no declared table "
         "(rows 3..5, in ['y'])"
     ]
 
@@ -302,8 +301,8 @@ def test_the_suggestion_for_a_staged_kernel_has_a_section_per_stage(tmp_path):
         ("[tables]\nx = {}\n", "[tables.stage<N>] sections, not 'x'"),
         ("[tables.stage0]\nx = {}\n", "not 'stage0'"),
         ("[tables.stage1]\nz = {}\n", "a table is a region; 'z' is no tensor"),
-        ("[tables.stage1]\nx = { also_via = [] , rows = 1 }\n", "rows"),
-        ('[tables.stage1]\nx = { also_via = ["CR0"] }\n', "takes no also_via"),
+        ("[tables.stage1]\nx = { rows = 1 }\n", "unknown key 'rows' in [tables.stage1] x"),
+        ('[tables.stage1]\nx = { also_via = ["CR0"] }\n', "unknown key 'also_via'"),
     ],
 )
 def test_a_wrong_stage_declaration_does_not_load(tmp_path, tables, error):
@@ -311,31 +310,13 @@ def test_a_wrong_stage_declaration_does_not_load(tmp_path, tables, error):
         _staged(tmp_path, tables)
 
 
-def test_a_table_reached_through_a_derived_base_is_pending(tmp_path, monkeypatch):
-    # No kernel binds a placed value to a CR any more (ipu_harness.table_bases refuses it
-    # while staging); the report's rule stays until the table-ID change removes it.
-    monkeypatch.setattr("ipu_harness.runner.check_table_bases", lambda *args, **kwargs: None)
-    manifest = _kernel(tmp_path, "[tables]\nx = {}\ny = {}\n")
-    toml = manifest.directory / "kernel.toml"
-    text = toml.read_text().replace('qf = "case_qf"', 'qf = "case_qf"\nxb = "base(x)"')
-    toml.write_text(text.replace('x    = "CR2"', 'xb   = "CR2"'))
-    asm = manifest.directory / "scale.asm"
-    asm.write_text(asm.read_text().replace("cr.x", "cr.xb"))
-    result = _run(load_manifest(manifest.directory))
-    assert result.passed
-    assert _messages(result) == []
-    assert _messages(result, "pending") == [
-        "pending: x: CR2 holds xb, a value derived from its base"
-    ]
-
-
 def test_a_pending_table_turns_its_errors_into_pending_findings(tmp_path):
-    tables = '[tables]\nx = { pending = "prefetches a row past it" }\ny = {}\n'
-    result = _run(_kernel(tmp_path, tables, asm=PREFETCH_ASM))
+    tables = '[tables]\nx = { pending = "walks x twice", repetitions = 2 }\ny = {}\n'
+    result = _run(_kernel(tmp_path, tables))
     assert result.passed
     assert _messages(result) == []
     (message,) = _messages(result, "pending")
-    assert message.startswith("pending: x: prefetches a row past it: 1 accesses outside rows=4")
+    assert message.startswith("pending: x: walks x twice: 1 repetitions, declared 2")
 
 
 def test_a_pending_table_with_nothing_wrong_in_a_case_warns(tmp_path):
@@ -366,3 +347,23 @@ def test_a_pin_on_the_rows_of_a_table_is_an_error(tmp_path):
     toml.write_text(text.replace("[outputs.y]\n", "[outputs.y]\nrow = 3\n"))
     with pytest.raises(PlanError, match="overlaps"):
         _run(load_manifest(manifest.directory))
+
+
+def test_a_tensor_keeps_its_table_id_across_stages(tmp_path, monkeypatch):
+    """t is CR3 in stage 1 and CR2 in stage 2: one table, one ID."""
+    from ipu_harness import stages
+    from ipu_harness.abi import register_writes
+
+    seen = []
+
+    def recording(*args, **kwargs):
+        writes = register_writes(*args, **kwargs)
+        seen.append({w.register: w.value for w in writes})
+        return writes
+
+    monkeypatch.setattr(stages, "register_writes", recording)
+    result = _run_e4(_staged(tmp_path, STAGE_TABLES))
+    assert result.passed
+    assert dict(result.table_ids) == {"x": 0, "t": 1, "y": 2}
+    assert (seen[0]["CR2"], seen[0]["CR3"]) == (0, 1)  # stage 1: x, t
+    assert (seen[1]["CR2"], seen[1]["CR3"]) == (1, 2)  # stage 2: t, y

@@ -48,6 +48,7 @@ from ipu_harness.placement import Placement, place
 from ipu_harness.reference import evaluate, load_reference
 from ipu_harness.stages import StageOptions, StagesRun, run_stages
 from ipu_harness.table_bases import check_table_bases
+from ipu_harness.table_ids import MAX_TABLES, TableBinder, TableSet
 from ipu_harness.tables import TableRecorder, TableReport, check, overhead_rows
 from ipu_harness.variants import Variant, as_variant
 from ipu_isa.codec.word import word_bytes
@@ -93,6 +94,9 @@ class RunOptions:
             ``[tables]`` (``--tables``, :mod:`ipu_harness.tables`): the
             result's ``tables``. A multi-stage kernel's stages each against
             their own ``[tables.stage<N>]``.
+        table_id_order: The table IDs free tables draw from, first to last
+            (default ``0..15``): a test passes a permutation to show that no
+            program relies on an ID's value.
     """
 
     max_cycles: int | None = None
@@ -103,6 +107,7 @@ class RunOptions:
     alias_profile: bool = False
     executor: Executor | None = None
     tables: bool = False
+    table_id_order: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.debug is not None and self.trace is not None:
@@ -166,6 +171,11 @@ class SharedModel:
             (``placement.place``).
         step: Which run on the model this is (a chain's step number, 0 for the
             first), so each kernel start has its own garbage.
+        table_hints: The table ID each resident input had where it came from
+            (:class:`ipu_harness.chain.Resident`); the step keeps it when it
+            can, else retags the table.
+        kernel_written: The inputs an earlier kernel wrote (not the host): a
+            pinned table (``CR0``) takes none of them.
     """
 
     model: ReferenceModel
@@ -176,6 +186,8 @@ class SharedModel:
     reserved: Mapping[str, tuple[int, int]] = field(default_factory=lambda: MappingProxyType({}))
     avoid: tuple[tuple[int, int], ...] = ()
     step: int = 0
+    table_hints: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    kernel_written: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -229,6 +241,10 @@ class RunResult:
         tables: The run's tables and the findings against their
             declarations, when ``RunOptions.tables`` asked; ``passed`` does
             not read them.
+        table_ids: The table ID each tensor had (:mod:`ipu_harness.table_ids`),
+            which a chain hands to the next step.
+        retagged: The tensors whose table the step retagged: the ID the
+            producer gave them and the one they have here.
     """
 
     kernel: str
@@ -247,6 +263,8 @@ class RunResult:
     placement: Placement | None = None
     stats: Stats | None = None
     tables: TableReport | None = None
+    table_ids: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    retagged: Mapping[str, tuple[int, int]] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def passed(self) -> bool:
@@ -412,6 +430,7 @@ def _execute_stages(  # noqa: PLR0913 -- the run's pieces: model, case, options,
     options: RunOptions,
     cache: AssemblyCache | None,
     shared: SharedModel | None,
+    binder: TableBinder,
 ) -> tuple[ModelRun | None, AliasProfile | None, StagesRun]:
     """Run a multi-stage kernel's hook (E06-14) as ``options`` say: one
     profile over every stage, each stage in the debugger, a trace per stage."""
@@ -435,6 +454,7 @@ def _execute_stages(  # noqa: PLR0913 -- the run's pieces: model, case, options,
             case=case.name,
             fresh=shared is None or shared.step == 0,
             step=0 if shared is None else shared.step,
+            binder=binder,
         ),
     )
     return staged.result, profile, staged
@@ -489,6 +509,8 @@ class Staged:
         placement: Where each tensor sits in XMEM.
         program: The assembled program, loaded into ``model``.
         writes: The register writes applied (``[abi]`` and the default DS).
+        tables: The table IDs bound on the model (the tensors' CRs hold them).
+        binder: The run's table-ID binder, with every ID it gave.
         model: The model, halted at PC 0, its XMEM and registers set up.
     """
 
@@ -498,6 +520,8 @@ class Staged:
     program: AssemblyResult
     writes: tuple[RegisterWrite, ...]
     model: ReferenceModel
+    tables: TableSet
+    binder: TableBinder
 
     def region_bytes(self, tensor: str) -> tuple[int, int]:
         """The XMEM byte range ``(start, size)`` of ``tensor``'s region."""
@@ -531,7 +555,27 @@ def _prepare(
     return plan, values, placement
 
 
-def stage(
+def binder_for(
+    plan: CasePlan,
+    placement: Placement,
+    shared: SharedModel | None,
+    order: tuple[int, ...] | None = None,
+) -> TableBinder:
+    """The table-ID binder of one kernel run: a chain step's resident inputs
+    hint the IDs their producers gave them."""
+    ids = tuple(range(MAX_TABLES)) if order is None else order
+    if shared is None:
+        return TableBinder(plan, placement, order=ids)
+    return TableBinder(
+        plan,
+        placement,
+        hints=shared.table_hints,
+        kernel_written=shared.kernel_written,
+        order=ids,
+    )
+
+
+def stage(  # noqa: PLR0913 -- the run's pieces, as run_kernel's
     manifest: KernelManifest,
     case: Case,
     fmt: Variant,
@@ -539,12 +583,14 @@ def stage(
     inputs: Mapping[str, Path] | None = None,
     cache: AssemblyCache | None = None,
     shared: SharedModel | None = None,
+    table_id_order: tuple[int, ...] | None = None,
 ) -> Staged:
     """Everything :func:`run_kernel` does before it runs the program.
 
     It plans the case, makes its inputs, places and packs its tensors,
-    assembles and loads the program, writes the input and scratch regions and
-    programs the registers.
+    assembles and loads the program, writes the input and scratch regions,
+    gives every tensor its table ID, binds the IDs to the tensors' rows on the
+    model and programs the registers.
 
     Args:
         manifest: The kernel.
@@ -554,6 +600,8 @@ def stage(
         cache: Reuses programs already assembled.
         shared: Stage on this model, with these inputs, some already in XMEM
             (E06-15); ``None``: a fresh model and the case's inputs.
+        table_id_order: The IDs free tables draw from
+            (``RunOptions.table_id_order``).
 
     Returns:
         The staged model and what went into it.
@@ -581,9 +629,14 @@ def stage(
         keep_mask=manifest.keeps_mask,
         fresh=shared is None or shared.step == 0,
     )
-    writes = tuple(register_writes(plan, placement))
+    binder = binder_for(plan, placement, shared, table_id_order)
+    tables = binder.bind(plan.manifest.abi)
+    writes = tuple(register_writes(plan, placement, tables=tables))
+    model.bind_tables(tables.storage)
     apply(model, writes)
-    return Staged(plan, MappingProxyType(dict(values)), placement, program, writes, model)
+    return Staged(
+        plan, MappingProxyType(dict(values)), placement, program, writes, model, tables, binder
+    )
 
 
 @dataclass(frozen=True)
@@ -602,6 +655,7 @@ class _Ran:
     stages: tuple[tuple[str, int], ...] = ()
     stats: Stats | None = None
     tables: TableReport | None = None
+    binder: TableBinder | None = None
 
 
 def _run_program(
@@ -613,7 +667,15 @@ def _run_program(
     shared: SharedModel | None,
 ) -> _Ran:
     """Stage the kernel's one program and run it as ``options`` say."""
-    staged = stage(manifest, case, fmt, inputs=options.inputs, cache=cache, shared=shared)
+    staged = stage(
+        manifest,
+        case,
+        fmt,
+        inputs=options.inputs,
+        cache=cache,
+        shared=shared,
+        table_id_order=options.table_id_order,
+    )
     model, program = staged.model, staged.program
     limit = DEFAULT_CYCLE_LIMIT if options.max_cycles is None else options.max_cycles
     header = _trace_header(program.words, fmt)
@@ -624,7 +686,9 @@ def _run_program(
     if recorder is not None:
         recorder.stop()
         launch = {w.index: w.value for w in staged.writes if w.bank == "cr"}
-        tables = check(staged.plan, staged.placement, launch, recorder.accesses)
+        tables = check(
+            staged.plan, staged.placement, launch, recorder.accesses, ids=staged.tables.ids
+        )
     stats = model.stats()
     cycles = run.cycles if run is not None else stats.cycles
     return _Ran(
@@ -639,6 +703,7 @@ def _run_program(
         program.rendered,
         stats=stats,
         tables=tables,
+        binder=staged.binder,
     )
 
 
@@ -656,7 +721,10 @@ def _run_staged_kernel(
     plan, values, placement = _prepare(manifest, case, fmt, options.inputs, shared)
     model = ReferenceModel(fmt.mode) if shared is None else shared.model
     values = _write_tensors(model, plan, placement, values, shared)
-    run, profile, staged = _execute_stages(model, plan, placement, case, options, cache, shared)
+    binder = binder_for(plan, placement, shared, options.table_id_order)
+    run, profile, staged = _execute_stages(
+        model, plan, placement, case, options, cache, shared, binder
+    )
     return _Ran(
         plan,
         MappingProxyType(dict(values)),
@@ -670,7 +738,16 @@ def _run_staged_kernel(
         tuple((s.program, s.cycles) for s in staged.stages),
         staged.stats,
         staged.tables,
+        binder,
     )
+
+
+def _ids(ran: _Ran) -> Mapping[str, int]:
+    return MappingProxyType({} if ran.binder is None else dict(ran.binder.ids))
+
+
+def _retagged(ran: _Ran) -> Mapping[str, tuple[int, int]]:
+    return MappingProxyType({} if ran.binder is None else dict(ran.binder.retagged))
 
 
 def run_kernel(
@@ -731,6 +808,8 @@ def run_kernel(
             stages=ran.stages,
             placement=placement,
             stats=ran.stats,
+            table_ids=_ids(ran),
+            retagged=_retagged(ran),
         )
 
     regions = {
@@ -774,4 +853,6 @@ def run_kernel(
         placement=placement,
         stats=ran.stats,
         tables=ran.tables,
+        table_ids=_ids(ran),
+        retagged=_retagged(ran),
     )

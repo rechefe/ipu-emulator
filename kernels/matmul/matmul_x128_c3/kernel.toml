@@ -26,7 +26,6 @@ qf         = "case_qf"                                 # the case's QF half (0 i
 [inputs.b]                                        # the data D = A^T, channel-major
 shape = ["n_tg", "k", "n_tok"]
 pack = "channel_major"
-row = 0
 
 [inputs.a]                                        # the weights W, output-major
 shape = ["n", "k"]

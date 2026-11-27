@@ -134,9 +134,6 @@ def narrowed(manifest: KernelManifest, params: Mapping[str, object]) -> KernelMa
                 {n: t for n, t in manifest.tensors.items() if n not in absent}
             ),
             abi=MappingProxyType(abi),
-            abi_offsets=MappingProxyType(
-                {n: o for n, o in manifest.abi_offsets.items() if n in abi}
-            ),
             abi_when=MappingProxyType({n: c for n, c in manifest.abi_when.items() if n in abi}),
         )
     return views[key]

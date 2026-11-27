@@ -1,4 +1,4 @@
-"""Registers from ``[abi]``: region bases, integers, element scalars (E06-06).
+"""Registers from ``[abi]``: table IDs, integers, element scalars (E06-06).
 
 ``[abi]`` is the one register map. :func:`register_writes` gives the value
 each bound register starts with; :func:`template_names` gives the program the
@@ -11,20 +11,20 @@ start as garbage and the program sets the ones it reads
 What a key binds decides the value:
 
 =====================  =====================================================
-a tensor               its base row (``Placement``); in a ``unit = "bytes"``
-                       kernel (L16), ``base_row x row_bytes(format)``; plus
-                       the binding's ``offset``, if it gives one. A tensor
-                       bound to ``CR0`` (pinned at row 0) is written nowhere:
-                       the program reads the hardwired 0.
+a tensor               its table ID, 0-15 (:mod:`ipu_harness.table_ids`): a
+                       bare ID, never a row or an offset. The binder picks
+                       it and the runner binds it to the tensor's rows on the
+                       reference model. A tensor bound to ``CR0`` is table 0
+                       (pinned): the program reads the hardwired 0 and
+                       nothing is written.
 an ``int`` parameter   the integer
 a ``bool`` parameter   1 or 0
 a ``float`` parameter  the CR word a MULT reads as it in the case's mode
                        (FP32: its float32 bits; NX8: the MULT constant
                        layout, ADR 0007; E06-03 checked it is exact)
-a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2"``);
-                       a placed one (``"base(w) + 1"``) over the regions'
-                       bases, in rows (bytes in a ``unit = "bytes"`` kernel),
-                       ``row_bytes`` and ``case_qf`` in the case's variant
+a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2"``),
+                       over the parameters, ``row_bytes`` and ``case_qf`` in
+                       the case's variant
 =====================  =====================================================
 
 Values are raw register bits: a negative integer is its two's complement in
@@ -50,13 +50,13 @@ from ipu_harness.expressions import (
     CASE_QF_NAME,
     ROW_BYTES_NAME,
     ExpressionError,
-    base_tensor,
     evaluate,
     names_in,
 )
 from ipu_harness.manifest import ZERO_REGISTER, KernelManifest
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
+from ipu_harness.table_ids import TableBinder, TableSet
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES, LR_CR_SCALAR_VALUE_MASK
 from ipu_isa.cr_halves import DEFAULT_DS
 from ipu_isa.operand_types import OperandKind
@@ -82,7 +82,7 @@ class RegisterWrite:
     Attributes:
         register: ``"CR2"`` .. ``"CR15"``.
         value: Its raw bits.
-        source: What the value is, for a report: ``"x (region base)"``,
+        source: What the value is, for a report: ``"x (table ID)"``,
             ``"rows (int param)"``, ``"s (element scalar, e4)"``.
     """
 
@@ -109,58 +109,36 @@ def _element_bits(value: float, plan: CasePlan) -> int:
     return word
 
 
-def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
+def _placed_value(name: str, plan: CasePlan) -> int:
     """A placed ``[derived]`` value: its expression over the integer parameters,
-    the other derived values (placed ones computed as it reads them), the
-    bases it reads (bytes in a ``unit = "bytes"`` kernel, as a tensor's
-    binding), ``row_bytes`` (the bytes of one row in the case's variant) and
-    ``case_qf`` (its QF half)."""
+    the other derived values (placed ones computed as it reads them),
+    ``row_bytes`` (the bytes of one row in the case's variant) and ``case_qf``
+    (its QF half). One that reads ``base()`` is never bound (the loader refuses
+    it), so none is computed here."""
     manifest = plan.manifest
     expression = manifest.derived[name]
-    scale = plan.format.row_bytes if manifest.byte_units else 1
     ints = {k: v for k, v in plan.params.items() if isinstance(v, int) and not isinstance(v, bool)}
     names: dict[str, int] = {**ints, **plan.derived}
     for read in names_in(expression):
-        tensor = base_tensor(read)
-        if tensor is not None:
-            if tensor not in placement.regions:
-                raise PlanError(
-                    manifest,
-                    f"derived.{name}",
-                    f"{expression!r}: {tensor} is not placed in this case (its when is false)",
-                )
-            names[read] = placement.regions[tensor].base_row * scale
-        elif read == ROW_BYTES_NAME:
+        if read == ROW_BYTES_NAME:
             names[read] = plan.format.row_bytes
         elif read == CASE_QF_NAME:
             names[read] = plan.format.qf_half
         elif read in manifest.placed:
-            names[read] = _placed_value(read, plan, placement)
+            names[read] = _placed_value(read, plan)
     try:
         return evaluate(expression, names)
     except ExpressionError as error:
         raise PlanError(manifest, f"derived.{name}", f"{expression!r}: {error}") from None
 
 
-def _value(
-    name: str, plan: CasePlan, placement: Placement, offsets: Mapping[str, int]
-) -> tuple[int, str]:
-    """The bits ``name`` puts in its register, and what they are.
-
-    ``offsets`` are the binding table's (the kernel's ``[abi]`` offsets, or
-    none for a stage's table): a region's base row plus its offset.
-    """
+def _value(name: str, plan: CasePlan, tables: TableSet) -> tuple[int, str]:
+    """The bits ``name`` puts in its register, and what they are."""
     manifest = plan.manifest
     if name in manifest.tensors:
-        base = placement.region(name).base_row
-        offset = offsets.get(name, 0)
-        shown = f" {offset:+d}" if offset else ""
-        if manifest.byte_units:
-            bytes_base = base * plan.format.row_bytes
-            return bytes_base + offset, f"{name} (region base, bytes{shown})"
-        return base + offset, f"{name} (region base{shown})"
+        return tables.ids[name], f"{name} (table ID)"
     if name in manifest.placed:
-        return _placed_value(name, plan, placement), f"{name} (derived, placed)"
+        return _placed_value(name, plan), f"{name} (derived, placed)"
     if name in manifest.derived:
         return plan.derived[name], f"{name} (derived)"
     decl = manifest.params[name]
@@ -177,30 +155,32 @@ def register_writes(
     *,
     abi: Mapping[str, str] | None = None,
     ds: int | None = None,
+    tables: TableSet | None = None,
 ) -> tuple[RegisterWrite, ...]:
     """Every register's starting value, in ``[abi]`` order, then the default
     DS in ``CR15.L`` unless ``[abi]`` binds ``CR15``. A ``CR0`` binding writes
-    nothing.
+    nothing (it is table 0).
 
     Args:
         plan: The checked case.
         placement: Its regions.
         abi: Names to registers in place of the kernel's ``[abi]`` (a stage's,
-            E06-14), already checked by ``manifest.check_abi``. The kernel's
-            ``[abi]`` offsets do not apply to it: each region is its base.
+            E06-14), already checked by ``manifest.check_abi``.
         ds: ``CR15.L``'s DS half; ``None``: the default (``ds(128)``).
+        tables: The tensors' IDs (:meth:`TableBinder.bind` of the same
+            bindings); ``None``: the lowest free IDs, in order.
 
     Returns:
         The writes, values as raw register bits.
 
     Raises:
         PlanError: A value does not fit a 32-bit register.
-        ConfigurationError: ``ds`` is given and ``abi`` binds ``CR15``.
+        ConfigurationError: ``ds`` is given and ``abi`` binds ``CR15``, or the
+            tensors do not fit the IDs.
     """
     bindings = plan.manifest.abi if abi is None else abi
-    # An [abi] offset belongs to the kernel's own binding: a stage's table
-    # binds each region at its base.
-    offsets = plan.manifest.abi_offsets if abi is None else {}
+    if tables is None:
+        tables = TableBinder(plan, placement).bind(bindings)
     cr15 = f"CR{DEFAULT_DS_CR}"
     if ds is not None and cr15 in bindings.values():
         raise ConfigurationError(
@@ -208,9 +188,9 @@ def register_writes(
         )
     writes: list[RegisterWrite] = []
     for name, register in bindings.items():
-        value, source = _value(name, plan, placement, offsets)
+        value, source = _value(name, plan, tables)
         if register == ZERO_REGISTER:
-            if value:  # the loader pins it at row 0; a byte-unit base is 0 too
+            if value:  # a tensor is table 0; nothing else is bound to CR0
                 raise PlanError(
                     plan.manifest, f"abi.{name}", f"{source} = {value}, but CR0 always reads 0"
                 )
@@ -221,7 +201,7 @@ def register_writes(
             )
         bits = value & LR_CR_SCALAR_VALUE_MASK
         clash = next((w for w in writes if w.register == register and w.value != bits), None)
-        if clash is not None:  # the loader lets two bindings share only an equal value
+        if clash is not None:  # the loader lets two bindings share only a table's ID
             raise PlanError(
                 plan.manifest,
                 f"abi.{name}",

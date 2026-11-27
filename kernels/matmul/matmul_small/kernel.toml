@@ -24,7 +24,6 @@ qf        = "case_qf"                            # the case's QF half (0 in FP32
 # Placed from row 0: a, b, y (the old XMEM map).
 [inputs.a]                                       # A: one row per matrix row
 shape = ["m", "k"]
-row = 0
 
 [inputs.b]                                       # W^T: row j is column j of W
 shape = ["k", "n"]

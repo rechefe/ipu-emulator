@@ -225,11 +225,10 @@ RULES = [
     ('s    = "CR5"', 's    = "CR1"', "[abi] binds CR1, a hardwired constant", 's    = "CR1"'),
     ('s    = "CR5"', 's    = "CR0"', "[abi] binds CR0, a hardwired constant", 's    = "CR0"'),
     ('s    = "CR5"', 's    = "CR16"', "is no CR or LR register", 's    = "CR16"'),
-    ('x    = "CR2"', 'x    = "CR0"', "is read through CR0 (always 0); pin it", 'x    = "CR0"'),
     (
         's    = "CR5"',
         's    = { register = "CR5", offset = 1 }',
-        "only a tensor's binding takes an offset",
+        "a CR holds a table ID, never an offset",
         "s    = { register",
     ),
     (
@@ -238,7 +237,7 @@ RULES = [
         "unknown key 'shift'",
         "y    = { register",
     ),
-    ('y    = "CR3"', "y    = { offset = 1 }", "needs 'register'", "y    = { offset"),
+    ('y    = "CR3"', 'y    = { when = "x" }', "needs 'register'", "y    = { when"),
     (
         '[outputs.y]\nshape = ["rows", 128]',
         '[outputs.y]\nshape = ["rows", 128]\nafter = "z"',

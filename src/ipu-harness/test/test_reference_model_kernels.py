@@ -42,7 +42,7 @@ def _register_bytes(value: int | bytes, size: int) -> bytes:
 
 def _copied(staged: Staged) -> IpuState:
     """An emulator state holding the staged model's program, registers and the
-    XMEM its tensors occupy, read through the API."""
+    XMEM its tensors occupy, and its bound table set, read through the API."""
     model = staged.model
     state = IpuState(fmt=staged.plan.format)
     emulator.load_program(state, [DecodedWord.from_word(w) for w in staged.program.words])
@@ -52,6 +52,7 @@ def _copied(staged: Staged) -> IpuState:
                 continue
             data = _register_bytes(model.read_register(name, index), definition["size_bytes"])
             state.regfile.set_register_bytes(name, index, data)
+    state.table_map = model.tables()  # the tensors' CRs hold table IDs
     used = staged.placement.rows_used * FORMATS[staged.plan.format].row_bytes
     state.xmem.write_address(0, model.read_xmem(0, used))
     return state

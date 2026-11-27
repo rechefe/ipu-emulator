@@ -43,7 +43,6 @@ ds_qf               = "halves(ds(128), case_qf)"             # CR15: LOW the def
 [inputs.x]
 shape = ["in_channels", "height", "width"]
 pack = "chunked"                             # padded to rows x cols, chunk-interleaved (no headroom)
-row = 0                                      # the program reads it through CR0
 
 [inputs.w]
 shape = ["out_channels", "in_channels", 1, 1]

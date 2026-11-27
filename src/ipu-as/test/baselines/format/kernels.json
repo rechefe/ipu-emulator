@@ -392,18 +392,18 @@
   "mangled/blank-line-range": "424cc59f803d41f01634891b9dec60cf1093dafb692ad46f1259b527e0693569"
  },
  "kernels/elementwise/scale/scale.asm": {
-  "input": "36fe5c05ff440b3996187a2f1a1eac190dfa0aa8d443c6e49b5c57829ca1b5fc",
-  "mangled": "7541796bd1699f3ed207803ced300a1dc2989ee022297eace73bc4f4899111f5",
-  "default": "36fe5c05ff440b3996187a2f1a1eac190dfa0aa8d443c6e49b5c57829ca1b5fc",
-  "mangled/default": "36fe5c05ff440b3996187a2f1a1eac190dfa0aa8d443c6e49b5c57829ca1b5fc",
-  "blank-line": "42507237e820dff215e35e032b27f6178a09820947b7fa0ae7485ea0c93fc677",
-  "mangled/blank-line": "42507237e820dff215e35e032b27f6178a09820947b7fa0ae7485ea0c93fc677",
-  "indent-tab": "8d8dea55cc8bd2c8b9ae4d491e8fd466c5757e7bbb7223f247cbd43f374575f9",
-  "mangled/indent-tab": "8d8dea55cc8bd2c8b9ae4d491e8fd466c5757e7bbb7223f247cbd43f374575f9",
-  "indent-2-range": "995d0966d7762e2cfd52ea5c83c8bad6915a4506e70012438e0d0da48c941e3c",
-  "mangled/indent-2-range": "64fec0ed34411b77f4ef09e3aab34c1cbbda554b3252d87602c9967e0b82697e",
-  "blank-line-range": "b23a921ee39634c0b2661a3ab43fab147444f9a2b693da64ba256642d702d584",
-  "mangled/blank-line-range": "fd8914b98b07989a542af28b7b2b8b2fedd6334d8d7a64360c5bf5a1f485bbcc"
+  "input": "79257aafc5b77a2919e011b098f980bfa6b200344e2e6ffcfe9aeeb26c194905",
+  "mangled": "44f5fb390fa479bc8b1992f4b8e0bf49ae99e2edba967a825c71dcab2494f3e0",
+  "default": "79257aafc5b77a2919e011b098f980bfa6b200344e2e6ffcfe9aeeb26c194905",
+  "mangled/default": "79257aafc5b77a2919e011b098f980bfa6b200344e2e6ffcfe9aeeb26c194905",
+  "blank-line": "e1a8a42f0c174b2828e753d98a73508cb771dad74bc6e00db16c02024940e6c7",
+  "mangled/blank-line": "e1a8a42f0c174b2828e753d98a73508cb771dad74bc6e00db16c02024940e6c7",
+  "indent-tab": "9364f4937b81c34b30f6829296501a967f4183eefc92c0b4778cf7e24c70f120",
+  "mangled/indent-tab": "9364f4937b81c34b30f6829296501a967f4183eefc92c0b4778cf7e24c70f120",
+  "indent-2-range": "0592e1fb1d0d8b065baf505810a1550f60666d205fd26376c201bdb5a2199d27",
+  "mangled/indent-2-range": "ac0395e15df1b0adf4ea230ee188becd9069f11b2577a693b9b1ba04d5c9547e",
+  "blank-line-range": "ae17ec02cd3398be180a36633393c2a9e202acb416d2d5ac28089aedead403e4",
+  "mangled/blank-line-range": "b87e3e4aef8f12ba06a79a4838c571a40c7dec67675a299c52bfab1debc4dd08"
  },
  "kernels/linear/fully_connected/fully_connected.asm": {
   "input": "55cccf0a62bd2b891e52f2ea49471dd1792937b5ed16d89d61492f6d4c318088",

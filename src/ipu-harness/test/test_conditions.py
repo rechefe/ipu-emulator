@@ -70,7 +70,7 @@ def test_with_bias_the_bias_region_is_placed_and_bound(tmp_path):
     assert set(plan.manifest.tensors) == {"x", "b", "y"}
     placement = place(plan)
     writes = {w.register: w.source for w in register_writes(plan, placement)}
-    assert writes["CR10"].startswith("b (region base")
+    assert writes["CR10"] == "b (table ID)"
     assert placement.region("b").base_row == 2
 
 
@@ -122,20 +122,13 @@ PLACED = TOML.replace(
 )
 
 
-def test_a_placed_value_reading_an_absent_tensor_does_not_stop_the_others(tmp_path):
-    bound = 'pb   = { register = "CR6", when = "bias" }\npy   = "CR7"\ntail = { register'
-    m = manifest(tmp_path, PLACED.replace("tail = { register", bound))
-    # x at rows 0..1; with bias, b at row 2 and y at 3, else y at 2.
-    for bias, cr6, cr7 in ((False, None, 3), (True, 3, 4)):
-        plan = plan_case(m, {"rows": 2, "bias": bias}, F.FP32)
-        got = {w.register: w.value for w in register_writes(plan, place(plan))}
-        assert (got.get("CR6"), got["CR7"]) == (cr6, cr7)
-
-
-def test_a_placed_value_reading_a_conditional_tensor_takes_its_condition(tmp_path):
-    toml = PLACED.replace("tail = { register", 'pb   = "CR6"\ntail = { register')
-    with pytest.raises(ManifestError, match="bind it with when = 'bias'"):
-        manifest(tmp_path, toml)
+def test_a_value_over_a_conditional_tensors_base_cannot_be_bound_under_any_condition(tmp_path):
+    """A CR holds a table ID: the offset is an LR, so no value over base() reaches a CR."""
+    for index, bound in enumerate(('pb   = "CR6"', 'pb   = { register = "CR6", when = "bias" }')):
+        toml = PLACED.replace("tail = { register", bound + "\ntail = { register")
+        with pytest.raises(ManifestError, match=r"binds pb, a value over base\(b\), to CR6"):
+            (tmp_path / str(index)).mkdir()
+            manifest(tmp_path / str(index), toml)
 
 
 @pytest.mark.parametrize(

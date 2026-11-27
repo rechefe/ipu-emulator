@@ -22,7 +22,6 @@ qf = "case_qf"           # the case's QF half (0: FP32 ignores it)
 # declaration order reproduces it (E07-12/13).
 [inputs.b]                         # K, channel-major: row c holds the n_tok keys of channel c (2 rows per channel at n_tok = 256)
 shape = ["d", "n_tok"]
-row = 0
 
 [inputs.a]                         # Q staged query-major: row i holds query i's d channels (gen.py transposes the old channel-major draw)
 shape = ["n_tok", "d"]
@@ -33,7 +32,7 @@ shape = ["n_tok", "n_tok"]
 # ACTIVATE.EXACT, one row per store, in row order
 
 [abi]
-b = "CR0"        # read through the hardwired 0: b is pinned at row 0
+b = "CR0"        # table 0 (pinned): the hardwired 0; the tensor is placed anywhere
 a = "CR9"        # QROW_BASE
 y = "CR3"        # S_BASE_G0
 k_start_g0 = "CR5"

@@ -31,17 +31,16 @@ def test_the_abi_table_names_each_binding_its_kind(tmp_path):
     toml = (m.directory / "kernel.toml").read_text()
     toml = toml.replace("[derived]\n", '[derived]\nhalf = "rows // 2"\n')
     toml = toml.replace("[abi]\n", '[abi]\nhalf = "CR8"\n')
-    toml = toml.replace('y    = "CR3"', 'y    = { register = "CR3", offset = -1 }')
     (m.directory / "kernel.toml").write_text(toml)
     m = load_manifest(m.directory)
-    rows = {r["name"]: (r["register"], r["kind"], r["offset"], r["when"]) for r in abi_table(m)}
+    rows = {r["name"]: (r["register"], r["kind"], r["when"]) for r in abi_table(m)}
     assert rows == {
-        "half": ("CR8", "derived", 0, None),
-        "x": ("CR2", "region", 0, None),
-        "y": ("CR3", "region", -1, None),
-        "rows": ("CR4", "int", 0, None),
-        "s": ("CR5", "element scalar", 0, None),
-        "qf": ("CR6", "derived", 0, None),
+        "half": ("CR8", "derived", None),
+        "x": ("CR2", "region", None),
+        "y": ("CR3", "region", None),
+        "rows": ("CR4", "int", None),
+        "s": ("CR5", "element scalar", None),
+        "qf": ("CR6", "derived", None),
     }
     data = page_data(m)
     assert data["design_notes"].startswith("scale.asm -- y = x * s")

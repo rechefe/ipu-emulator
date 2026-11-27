@@ -20,7 +20,6 @@ ds_qf      = "halves(ds(128), case_qf)"  # LOW: the DS; HIGH: the case's QF (FP3
 
 [inputs.x]
 shape = ["channels", "tokens"]            # row-major: row ch * groups + g, the old (ch, tg) order
-row = 0                                   # the program reads x's base through CR0
 
 [inputs.gamma]
 shape = ["channels"]                      # ceil(channels / 128) rows, zero past channels
@@ -57,7 +56,7 @@ shape = [1, 128]
 shape = [1, 128]
 
 [abi]
-x          = "CR0"                        # hardwired 0: x is pinned at row 0
+x          = "CR0"                        # table 0 (pinned): the hardwired 0; the tensor is placed anywhere
 beta       = "CR2"
 ones       = "CR3"
 neg_inv_n  = "CR4"

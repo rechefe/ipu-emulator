@@ -2,8 +2,8 @@
 uses, as the Cache Unit's compiler needs it (for :mod:`ipu_harness.manifest`).
 A multi-stage kernel has one sub-section per stage (``[tables.stage1]``).
 
-A table is one region (an input, output or scratch tensor) reached through
-its ``[abi]`` base CR. Its rows are the region's; the section adds what the
+A table is one region (an input, output or scratch tensor) named by its
+``[abi]`` CR, which holds its table ID. Its rows are the region's; the section adds what the
 program does with them, as integers or shape-grammar expressions over
 parameter and derived values (:mod:`ipu_harness.tables` evaluates them per
 case and :mod:`ipu_harness.table_trace` checks them against the run).
@@ -12,10 +12,9 @@ case and :mod:`ipu_harness.table_trace` checks them against the run).
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import replace
 from typing import Any
 
-from ipu_harness._manifest_decls import TABLE_KEYS, ZERO_VIEW, TableDecl, TensorDecl
+from ipu_harness._manifest_decls import TABLE_KEYS, TableDecl, TensorDecl
 from ipu_harness._manifest_params import check_expression
 from ipu_harness._toml_source import Reader, where
 
@@ -34,39 +33,14 @@ def _count(r: Reader, raw: object, names: Iterable[str], path: tuple[str, ...]) 
     return value
 
 
-def _also_via(
-    r: Reader,
-    raw: object,
-    name: str,
-    abi: Mapping[str, str],
-    placed: Mapping[str, frozenset[str]],
-    path: tuple[str, ...],
-) -> tuple[str, ...]:
-    """Each entry is ``CR0`` or an ``[abi]`` CR binding of a value that reads ``base(name)``."""
-    entries = r.typed(raw, list, path)
-    for entry in entries:
-        entry = r.text(entry, path)
-        if entry == ZERO_VIEW:
-            continue
-        if not abi.get(entry, "").startswith("CR"):
-            raise r.fail(path, f"{where(path)} {entry!r} is bound to no CR in [abi]")
-        if name not in placed.get(entry, frozenset()):
-            raise r.fail(path, f"{where(path)} {entry!r} does not read base({name})")
-    if len(set(entries)) != len(entries):
-        raise r.fail(path, f"{where(path)} lists an entry twice")
-    return tuple(entries)
-
-
 def _entries(
     r: Reader,
     raw: object,
     tensors: Mapping[str, TensorDecl],
     known: Iterable[str],
     prefix: tuple[str, ...],
-    *,
-    also_via: bool,
 ) -> dict[str, TableDecl]:
-    """The ``<tensor> = {...}`` entries of one section (without their ``also_via``)."""
+    """The ``<tensor> = {...}`` entries of one section."""
     tables: dict[str, TableDecl] = {}
     for name, entry in r.table(raw, prefix).items():
         path = (*prefix, name)
@@ -78,8 +52,6 @@ def _entries(
             raise r.fail(
                 path, f"{where(path)}: a whole_run table takes no repetitions or jump_back"
             )
-        if table.get("also_via") and not also_via:
-            raise r.fail(path, f"{where(path)}: a stage's table takes no also_via")
         tables[name] = TableDecl(
             name=name,
             repetitions=_count(r, table.get("repetitions", 1), known, (*path, "repetitions")),
@@ -91,11 +63,9 @@ def _entries(
     return tables
 
 
-def _reaches(abi: Mapping[str, str], placed: Mapping[str, frozenset[str]], name: str) -> bool:
-    """Whether a CR holds the tensor's base: its own binding, or a ``[derived]``
-    value of its base alone (``x_band = base(x) + ...``)."""
-    bound = abi.get(name, "").startswith("CR")
-    return bound or any(abi.get(d, "").startswith("CR") and b == {name} for d, b in placed.items())
+def _reaches(abi: Mapping[str, str], name: str) -> bool:
+    """Whether a CR holds the tensor's table ID: its own ``[abi]`` binding."""
+    return abi.get(name, "").startswith("CR")
 
 
 def _stage_name(r: Reader, stage: str) -> None:
@@ -143,21 +113,11 @@ def read_tables(
         stages = {}
         for stage, entries in r.table(raw, ("tables",)).items():
             _stage_name(r, stage)
-            stages[stage] = _entries(r, entries, tensors, known, ("tables", stage), also_via=False)
+            stages[stage] = _entries(r, entries, tensors, known, ("tables", stage))
         return {}, stages
-    tables = _entries(r, raw, tensors, known, ("tables",), also_via=True)
-    out = {}
-    for name, decl in tables.items():
-        path = ("tables", name)
-        if not _reaches(abi, placed, name):
+    tables = _entries(r, raw, tensors, known, ("tables",))
+    for name in tables:
+        if not _reaches(abi, name):
+            path = ("tables", name)
             raise r.fail(path, f"{where(path)}: {name} is reached through no CR in [abi]")
-        via = _also_via(
-            r,
-            r.table(raw, ("tables",))[name].get("also_via", []),
-            name,
-            abi,
-            placed,
-            (*path, "also_via"),
-        )
-        out[name] = replace(decl, also_via=via)
-    return out, {}
+    return tables, {}

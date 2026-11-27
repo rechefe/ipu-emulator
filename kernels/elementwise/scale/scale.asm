@@ -6,7 +6,8 @@
       {{ cr.qf }}.L (FP32 ignores it).
     - The product goes through ACC (first add), and ACTIVATE.EXACT identity
       stores the accumulator vector: one FP32 row per iteration.
-    - Region bases and the row count are in rows, not bytes.
+    - {{ cr.x }} and {{ cr.y }} hold the table IDs of x and y, not their rows;
+      LR1 and LR2 are the rows within them. The row count is in rows, not bytes.
 -#}
     SET LR0 CR0 ;
     SET LR1 CR0 ;

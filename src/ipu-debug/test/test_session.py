@@ -162,6 +162,37 @@ class TestReadXmem:
         assert window.byte_address == 3 * xmem_row_size_bytes(state)
         assert window.byte_count == 1
 
+    def test_a_cr_names_a_table_when_a_table_set_is_bound(self):
+        state = new_state()
+        state.table_map = {2: (40, 8)}
+        state.regfile.set_cr(5, 2)  # table ID 2
+        debug = DebugSession(state)
+        window = debug.read_xmem(XmemRequest("row", "cr5", "3", 1, "hex"))
+        assert window.metadata["row"] == 43  # table 2 starts at row 40
+        flat = debug.read_xmem(XmemRequest("row", "5", "3", 1, "hex"))  # an immediate is a row
+        assert flat.metadata["row"] == 8
+
+    def test_a_table_address_in_byte_mode_starts_at_the_tables_first_byte(self):
+        state = new_state()
+        state.table_map = {2: (40, 8)}
+        state.regfile.set_cr(5, 2)
+        window = DebugSession(state).read_xmem(XmemRequest("byte", "cr5", "4", 1, "hex"))
+        assert window.byte_address == 40 * xmem_row_size_bytes(state) + 4
+
+    @pytest.mark.parametrize(
+        ("cr", "offset", "message"),
+        [
+            (99, "0", "table ID 99 is not bound"),
+            (2, "50", "offset 50 is outside table 2"),
+        ],
+    )
+    def test_a_table_access_the_emulator_faults_is_refused(self, cr, offset, message):
+        state = new_state()
+        state.table_map = {2: (40, 8)}
+        state.regfile.set_cr(5, cr)
+        with pytest.raises(DebugError, match=message):
+            DebugSession(state).read_xmem(XmemRequest("row", "cr5", offset, 1, "hex"))
+
     @pytest.mark.parametrize(
         ("request_", "message"),
         [
